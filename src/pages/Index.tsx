@@ -27,6 +27,8 @@ const Index = () => {
   const [slices, setSlices] = useState<Map<number, { region: any; settings: SliceSettings }>>(new Map());
   const [activeSlice, setActiveSlice] = useState<number | null>(null);
   const [nextSliceNumber, setNextSliceNumber] = useState(1);
+  const [currentlyPlayingSlice, setCurrentlyPlayingSlice] = useState<number | null>(null);
+  const activeSliceSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   
   // Drum state
   const [drumPads, setDrumPads] = useState<DrumPad[]>([
@@ -118,9 +120,25 @@ const Index = () => {
     });
   }, [nextSliceNumber, ctx]);
 
+  // Stop currently playing slice
+  const stopCurrentSlice = useCallback(() => {
+    activeSliceSourcesRef.current.forEach(source => {
+      try {
+        source.stop();
+      } catch (e) {
+        // Source may already be stopped
+      }
+    });
+    activeSliceSourcesRef.current = [];
+    setCurrentlyPlayingSlice(null);
+  }, []);
+
   // Play slice
   const playSlice = useCallback((sliceNum: number) => {
     if (!masterBuffer || !slices.has(sliceNum)) return;
+
+    // Stop any currently playing slice to prevent overlap
+    stopCurrentSlice();
 
     const { region, settings } = slices.get(sliceNum)!;
     const startTime = region.start;
@@ -168,13 +186,17 @@ const Index = () => {
       source.stop(ctx.currentTime + duration / playbackRate);
     }
 
-    audioSourcesRef.current.push(source);
+    activeSliceSourcesRef.current.push(source);
+    setCurrentlyPlayingSlice(sliceNum);
 
     // Clean up after playback
     source.onended = () => {
-      audioSourcesRef.current = audioSourcesRef.current.filter(s => s !== source);
+      activeSliceSourcesRef.current = activeSliceSourcesRef.current.filter(s => s !== source);
+      if (activeSliceSourcesRef.current.length === 0) {
+        setCurrentlyPlayingSlice(null);
+      }
     };
-  }, [masterBuffer, slices, ctx, masterGainNode]);
+  }, [masterBuffer, slices, ctx, masterGainNode, stopCurrentSlice]);
 
   // Play drum pad
   const playDrumPad = useCallback((key: string) => {
@@ -215,6 +237,19 @@ const Index = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toUpperCase();
       
+      // Handle spacebar for play/pause
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (wavesurfer) {
+          if (wavesurfer.isPlaying()) {
+            wavesurfer.pause();
+          } else {
+            wavesurfer.play();
+          }
+        }
+        return;
+      }
+      
       if (activeKeys.has(key)) return;
       
       setActiveKeys(prev => new Set(prev).add(key));
@@ -248,7 +283,7 @@ const Index = () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [playSlice, playDrumPad, activeKeys]);
+  }, [playSlice, playDrumPad, activeKeys, wavesurfer]);
 
   // Update slice settings
   const updateSliceSettings = (sliceNum: number, settings: SliceSettings) => {
@@ -450,10 +485,15 @@ const Index = () => {
 
         {/* Waveform */}
         {audioFile && (
-          <WaveformDisplay
-            audioFile={audioFile}
-            onWaveSurferReady={handleWaveSurferReady}
-          />
+          <div className="space-y-2">
+            <WaveformDisplay
+              audioFile={audioFile}
+              onWaveSurferReady={handleWaveSurferReady}
+            />
+            <div className="text-xs text-muted-foreground text-center">
+              Press <kbd className="px-1.5 py-0.5 bg-secondary rounded border border-border">Spacebar</kbd> to play/pause waveform
+            </div>
+          </div>
         )}
 
         {/* Main controls grid */}
