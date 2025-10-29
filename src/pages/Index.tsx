@@ -28,6 +28,7 @@ const Index = () => {
   const [activeSlice, setActiveSlice] = useState<number | null>(null);
   const [nextSliceNumber, setNextSliceNumber] = useState(1);
   const [currentlyPlayingSlice, setCurrentlyPlayingSlice] = useState<number | null>(null);
+  const [lastPlayedSlice, setLastPlayedSlice] = useState<number | null>(null);
   const activeSliceSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   
   // Drum state
@@ -79,31 +80,35 @@ const Index = () => {
     let startPos: number | null = null;
 
     regions.on('region-created', (region: any) => {
-      if (nextSliceNumber > 9) {
-        toast.error("Maximum 9 slices allowed");
-        region.remove();
-        return;
-      }
+      // Use a closure to capture the current nextSliceNumber
+      setNextSliceNumber(currentNum => {
+        if (currentNum > 9) {
+          toast.error("Maximum 9 slices allowed");
+          region.remove();
+          return currentNum;
+        }
 
-      const sliceNum = nextSliceNumber;
-      region.setOptions({
-        content: sliceNum.toString(),
-        color: 'rgba(135, 206, 235, 0.3)',
-        drag: true,
-        resize: true,
+        const sliceNum = currentNum;
+        region.setOptions({
+          content: sliceNum.toString(),
+          color: 'rgba(135, 206, 235, 0.3)',
+          drag: true,
+          resize: true,
+        });
+
+        const settings: SliceSettings = {
+          volume: 1,
+          tempo: 1,
+          transpose: 0,
+          reverb: 0,
+          mode: 'classic',
+        };
+
+        setSlices(prev => new Map(prev).set(sliceNum, { region, settings }));
+        toast.success(`Slice ${sliceNum} created`);
+        
+        return currentNum + 1;
       });
-
-      const settings: SliceSettings = {
-        volume: 1,
-        tempo: 1,
-        transpose: 0,
-        reverb: 0,
-        mode: 'classic',
-      };
-
-      setSlices(prev => new Map(prev).set(sliceNum, { region, settings }));
-      setNextSliceNumber(prev => prev + 1);
-      toast.success(`Slice ${sliceNum} created`);
     });
 
     ws.on('click', (relativeX: number) => {
@@ -118,7 +123,37 @@ const Index = () => {
         startPos = null;
       }
     });
-  }, [nextSliceNumber, ctx]);
+  }, [ctx]);
+
+  // Stop all audio
+  const stopAllAudio = useCallback(() => {
+    // Stop slice sources
+    activeSliceSourcesRef.current.forEach(source => {
+      try {
+        source.stop();
+      } catch (e) {
+        // Source may already be stopped
+      }
+    });
+    activeSliceSourcesRef.current = [];
+    
+    // Stop all other sources (drums, etc)
+    audioSourcesRef.current.forEach(source => {
+      try {
+        source.stop();
+      } catch (e) {
+        // Source may already be stopped
+      }
+    });
+    audioSourcesRef.current = [];
+    
+    // Stop waveform if playing
+    if (wavesurfer?.isPlaying()) {
+      wavesurfer.pause();
+    }
+    
+    setCurrentlyPlayingSlice(null);
+  }, [wavesurfer]);
 
   // Stop currently playing slice
   const stopCurrentSlice = useCallback(() => {
@@ -188,6 +223,7 @@ const Index = () => {
 
     activeSliceSourcesRef.current.push(source);
     setCurrentlyPlayingSlice(sliceNum);
+    setLastPlayedSlice(sliceNum);
 
     // Clean up after playback
     source.onended = () => {
@@ -237,15 +273,15 @@ const Index = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toUpperCase();
       
-      // Handle spacebar for play/pause
+      // Handle spacebar to stop all audio and replay last sample
       if (e.code === 'Space') {
         e.preventDefault();
-        if (wavesurfer) {
-          if (wavesurfer.isPlaying()) {
-            wavesurfer.pause();
-          } else {
-            wavesurfer.play();
-          }
+        if (currentlyPlayingSlice !== null || audioSourcesRef.current.length > 0) {
+          // If anything is playing, stop everything
+          stopAllAudio();
+        } else if (lastPlayedSlice !== null) {
+          // If nothing playing, replay the last slice
+          playSlice(lastPlayedSlice);
         }
         return;
       }
@@ -283,7 +319,7 @@ const Index = () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [playSlice, playDrumPad, activeKeys, wavesurfer]);
+  }, [playSlice, playDrumPad, activeKeys, currentlyPlayingSlice, lastPlayedSlice, stopAllAudio]);
 
   // Update slice settings
   const updateSliceSettings = (sliceNum: number, settings: SliceSettings) => {
@@ -292,6 +328,32 @@ const Index = () => {
       const slice = newSlices.get(sliceNum);
       if (slice) {
         newSlices.set(sliceNum, { ...slice, settings });
+      }
+      return newSlices;
+    });
+  };
+
+  // Delete slice
+  const deleteSlice = (sliceNum: number) => {
+    setSlices(prev => {
+      const newSlices = new Map(prev);
+      const slice = newSlices.get(sliceNum);
+      if (slice) {
+        // Remove the region from wavesurfer
+        slice.region.remove();
+        newSlices.delete(sliceNum);
+        
+        // If this was the active slice, clear it
+        if (activeSlice === sliceNum) {
+          setActiveSlice(null);
+        }
+        
+        // Stop playing if this slice is currently playing
+        if (currentlyPlayingSlice === sliceNum) {
+          stopCurrentSlice();
+        }
+        
+        toast.success(`Slice ${sliceNum} deleted`);
       }
       return newSlices;
     });
@@ -491,7 +553,7 @@ const Index = () => {
               onWaveSurferReady={handleWaveSurferReady}
             />
             <div className="text-xs text-muted-foreground text-center">
-              Press <kbd className="px-1.5 py-0.5 bg-secondary rounded border border-border">Spacebar</kbd> to play/pause waveform
+              Press <kbd className="px-1.5 py-0.5 bg-secondary rounded border border-border">Spacebar</kbd> to stop all audio / replay last sample
             </div>
           </div>
         )}
@@ -505,6 +567,7 @@ const Index = () => {
                 sliceNumber={activeSlice}
                 settings={slices.get(activeSlice)!.settings}
                 onSettingsChange={(settings) => updateSliceSettings(activeSlice, settings)}
+                onDelete={() => deleteSlice(activeSlice)}
               />
             )}
           </div>

@@ -13,12 +13,23 @@ interface SliceControlsProps {
   sliceNumber: number;
   settings: SliceSettings;
   onSettingsChange: (settings: SliceSettings) => void;
+  onDelete: () => void;
 }
 
-const SliceControls = ({ sliceNumber, settings, onSettingsChange }: SliceControlsProps) => {
+const SliceControls = ({ sliceNumber, settings, onSettingsChange, onDelete }: SliceControlsProps) => {
   return (
     <div className="border-2 border-border rounded p-4 bg-card space-y-4">
-      <h3 className="text-sm font-bold text-accent-foreground">Slice {sliceNumber}</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-accent-foreground">Slice {sliceNumber}</h3>
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={onDelete}
+          className="h-6 px-2 text-xs"
+        >
+          Delete
+        </Button>
+      </div>
       
       <div className="space-y-3">
         <div>
