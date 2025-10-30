@@ -5,11 +5,17 @@ import RegionsPlugin from "wavesurfer.js/dist/plugins/regions";
 import Header from "@/components/Header";
 import WaveformDisplay from "@/components/WaveformDisplay";
 import SliceControls, { SliceSettings } from "@/components/SliceControls";
-import DrumPads, { DrumPad } from "@/components/DrumPads";
+import Metronome from "@/components/Metronome";
+import Sequencer from "@/components/Sequencer";
 import SmartCleanKnob from "@/components/SmartCleanKnob";
 import KeyboardTriggers from "@/components/KeyboardTriggers";
 import RecordingControls from "@/components/RecordingControls";
 import { Button } from "@/components/ui/button";
+
+interface DrumPad {
+  sampleName: string;
+  audioBuffer: AudioBuffer | null;
+}
 
 const Index = () => {
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -31,14 +37,18 @@ const Index = () => {
   const [lastPlayedSlice, setLastPlayedSlice] = useState<number | null>(null);
   const activeSliceSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   
-  // Drum state
+  // Metronome & Sequencer state
+  const [bpm, setBpm] = useState(120);
+  const [isMetronomePlaying, setIsMetronomePlaying] = useState(false);
+  
+  // Drum state (6 tracks for sequencer)
   const [drumPads, setDrumPads] = useState<DrumPad[]>([
-    { key: 'D', sampleName: 'kick1', audioBuffer: null, eq: { low: 0, mid: 0, high: 0 } },
-    { key: 'F', sampleName: 'snare2', audioBuffer: null, eq: { low: 0, mid: 0, high: 0 } },
-    { key: 'G', sampleName: 'hihat2', audioBuffer: null, eq: { low: 0, mid: 0, high: 0 } },
-    { key: 'H', sampleName: 'kick1', audioBuffer: null, eq: { low: 0, mid: 0, high: 0 } },
-    { key: 'J', sampleName: 'snare2', audioBuffer: null, eq: { low: 0, mid: 0, high: 0 } },
-    { key: 'K', sampleName: 'hihat2', audioBuffer: null, eq: { low: 0, mid: 0, high: 0 } },
+    { sampleName: 'Kick', audioBuffer: null },
+    { sampleName: 'Snare', audioBuffer: null },
+    { sampleName: 'Closed Hat', audioBuffer: null },
+    { sampleName: 'Open Hat', audioBuffer: null },
+    { sampleName: 'Clap', audioBuffer: null },
+    { sampleName: 'Perc', audioBuffer: null },
   ]);
   
   // UI state
@@ -234,36 +244,14 @@ const Index = () => {
     };
   }, [masterBuffer, slices, ctx, masterGainNode, stopCurrentSlice]);
 
-  // Play drum pad
-  const playDrumPad = useCallback((key: string) => {
-    const pad = drumPads.find(p => p.key === key);
+  // Play drum pad by track index
+  const playDrumPad = useCallback((trackIndex: number) => {
+    const pad = drumPads[trackIndex];
     if (!pad?.audioBuffer) return;
 
     const source = ctx.createBufferSource();
     source.buffer = pad.audioBuffer;
-
-    // Apply EQ
-    const lowFilter = ctx.createBiquadFilter();
-    lowFilter.type = 'lowshelf';
-    lowFilter.frequency.value = 200;
-    lowFilter.gain.value = pad.eq.low;
-
-    const midFilter = ctx.createBiquadFilter();
-    midFilter.type = 'peaking';
-    midFilter.frequency.value = 1000;
-    midFilter.gain.value = pad.eq.mid;
-    midFilter.Q.value = 1;
-
-    const highFilter = ctx.createBiquadFilter();
-    highFilter.type = 'highshelf';
-    highFilter.frequency.value = 3000;
-    highFilter.gain.value = pad.eq.high;
-
-    source.connect(lowFilter);
-    lowFilter.connect(midFilter);
-    midFilter.connect(highFilter);
-    highFilter.connect(masterGainNode.gainNode);
-
+    source.connect(masterGainNode.gainNode);
     source.start();
     audioSourcesRef.current.push(source);
   }, [drumPads, ctx, masterGainNode]);
@@ -297,9 +285,10 @@ const Index = () => {
         setActiveSlice(sliceNum);
       }
 
-      // Check for drum keys
-      if (['D', 'F', 'G', 'H', 'J', 'K'].includes(key)) {
-        playDrumPad(key);
+      // Check for drum keys (D, F, G, H, J, K map to tracks 0-5)
+      const drumKeyMap: Record<string, number> = { 'D': 0, 'F': 1, 'G': 2, 'H': 3, 'J': 4, 'K': 5 };
+      if (key in drumKeyMap) {
+        playDrumPad(drumKeyMap[key]);
       }
     };
 
@@ -359,25 +348,18 @@ const Index = () => {
     });
   };
 
-  // Handle drum sample upload
-  const handleDrumSampleUpload = async (key: string, file: File) => {
+  // Handle drum sample upload by track index
+  const handleDrumSampleUpload = async (trackIndex: number, file: File) => {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = await ctx.decodeAudioData(arrayBuffer);
     
-    setDrumPads(prev => prev.map(pad => 
-      pad.key === key 
+    setDrumPads(prev => prev.map((pad, idx) => 
+      idx === trackIndex 
         ? { ...pad, sampleName: file.name, audioBuffer: buffer }
         : pad
     ));
     
-    toast.success(`Sample loaded for ${key}`);
-  };
-
-  // Handle drum EQ change
-  const handleDrumEQChange = (key: string, eq: { low: number; mid: number; high: number }) => {
-    setDrumPads(prev => prev.map(pad => 
-      pad.key === key ? { ...pad, eq } : pad
-    ));
+    toast.success(`Sample loaded for track ${trackIndex + 1}`);
   };
 
   // Smart clean processing
@@ -572,14 +554,13 @@ const Index = () => {
             )}
           </div>
 
-          {/* Drum pads */}
+          {/* Metronome */}
           <div>
-            <DrumPads
-              pads={drumPads}
-              onPadTrigger={playDrumPad}
-              onSampleUpload={handleDrumSampleUpload}
-              onEQChange={handleDrumEQChange}
-              activePad={null}
+            <Metronome
+              bpm={bpm}
+              onBpmChange={setBpm}
+              isPlaying={isMetronomePlaying}
+              onToggle={() => setIsMetronomePlaying(!isMetronomePlaying)}
             />
           </div>
 
@@ -594,6 +575,15 @@ const Index = () => {
             />
           </div>
         </div>
+
+        {/* Sequencer */}
+        <Sequencer
+          bpm={bpm}
+          isPlaying={isMetronomePlaying}
+          onLoadSample={handleDrumSampleUpload}
+          onTriggerSample={playDrumPad}
+          sampleNames={drumPads.map(pad => pad.sampleName)}
+        />
 
         {/* Keyboard triggers */}
         <KeyboardTriggers activeKeys={activeKeys} />
