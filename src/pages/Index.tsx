@@ -2,11 +2,10 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions";
-import * as Tone from "tone";
 import Header from "@/components/Header";
 import WaveformDisplay from "@/components/WaveformDisplay";
 import SliceControls, { SliceSettings } from "@/components/SliceControls";
-import Sequencer from "@/components/Sequencer";
+import DrumPads, { DrumPad } from "@/components/DrumPads";
 import SmartCleanKnob from "@/components/SmartCleanKnob";
 import KeyboardTriggers from "@/components/KeyboardTriggers";
 import RecordingControls from "@/components/RecordingControls";
@@ -17,10 +16,12 @@ const Index = () => {
   const [wavesurfer, setWavesurfer] = useState<WaveSurfer | null>(null);
   const [regionsPlugin, setRegionsPlugin] = useState<RegionsPlugin | null>(null);
   const [masterBuffer, setMasterBuffer] = useState<AudioBuffer | null>(null);
-  
-  // Tempo and playback state
-  const [bpm, setBpm] = useState(120);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [masterGainNode] = useState(() => {
+    const ctx = new AudioContext();
+    const gainNode = ctx.createGain();
+    gainNode.connect(ctx.destination);
+    return { ctx, gainNode };
+  });
   
   // Slice state
   const [slices, setSlices] = useState<Map<number, { region: any; settings: SliceSettings }>>(new Map());
@@ -28,7 +29,17 @@ const Index = () => {
   const [nextSliceNumber, setNextSliceNumber] = useState(1);
   const [currentlyPlayingSlice, setCurrentlyPlayingSlice] = useState<number | null>(null);
   const [lastPlayedSlice, setLastPlayedSlice] = useState<number | null>(null);
-  const activeSliceSourcesRef = useRef<Tone.Player[]>([]);
+  const activeSliceSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  
+  // Drum state
+  const [drumPads, setDrumPads] = useState<DrumPad[]>([
+    { key: 'D', sampleName: 'kick1', audioBuffer: null, eq: { low: 0, mid: 0, high: 0 } },
+    { key: 'F', sampleName: 'snare2', audioBuffer: null, eq: { low: 0, mid: 0, high: 0 } },
+    { key: 'G', sampleName: 'hihat2', audioBuffer: null, eq: { low: 0, mid: 0, high: 0 } },
+    { key: 'H', sampleName: 'kick1', audioBuffer: null, eq: { low: 0, mid: 0, high: 0 } },
+    { key: 'J', sampleName: 'snare2', audioBuffer: null, eq: { low: 0, mid: 0, high: 0 } },
+    { key: 'K', sampleName: 'hihat2', audioBuffer: null, eq: { low: 0, mid: 0, high: 0 } },
+  ]);
   
   // UI state
   const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set());
@@ -37,13 +48,13 @@ const Index = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   
+  const audioSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const recordingDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 
-  // Initialize Tone.js
-  useEffect(() => {
-    Tone.Transport.bpm.value = bpm;
-  }, [bpm]);
+  // Use the audio context from masterGainNode
+  const ctx = masterGainNode.ctx;
 
   // Handle file upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -52,9 +63,9 @@ const Index = () => {
 
     setAudioFile(file);
     
-    // Load audio buffer using Tone.js
+    // Load audio buffer
     const arrayBuffer = await file.arrayBuffer();
-    const buffer = await Tone.context.decodeAudioData(arrayBuffer);
+    const buffer = await ctx.decodeAudioData(arrayBuffer);
     setMasterBuffer(buffer);
     
     toast.success("Audio file loaded");
@@ -69,6 +80,7 @@ const Index = () => {
     let startPos: number | null = null;
 
     regions.on('region-created', (region: any) => {
+      // Use a closure to capture the current nextSliceNumber
       setNextSliceNumber(currentNum => {
         if (currentNum > 9) {
           toast.error("Maximum 9 slices allowed");
@@ -111,22 +123,31 @@ const Index = () => {
         startPos = null;
       }
     });
-  }, []);
+  }, [ctx]);
 
   // Stop all audio
   const stopAllAudio = useCallback(() => {
     // Stop slice sources
-    activeSliceSourcesRef.current.forEach(player => {
-      if (player.state === "started") {
-        player.stop();
+    activeSliceSourcesRef.current.forEach(source => {
+      try {
+        source.stop();
+      } catch (e) {
+        // Source may already be stopped
       }
     });
     activeSliceSourcesRef.current = [];
     
-    // Stop transport and waveform
-    Tone.Transport.stop();
-    setIsPlaying(false);
+    // Stop all other sources (drums, etc)
+    audioSourcesRef.current.forEach(source => {
+      try {
+        source.stop();
+      } catch (e) {
+        // Source may already be stopped
+      }
+    });
+    audioSourcesRef.current = [];
     
+    // Stop waveform if playing
     if (wavesurfer?.isPlaying()) {
       wavesurfer.pause();
     }
@@ -136,16 +157,18 @@ const Index = () => {
 
   // Stop currently playing slice
   const stopCurrentSlice = useCallback(() => {
-    activeSliceSourcesRef.current.forEach(player => {
-      if (player.state === "started") {
-        player.stop();
+    activeSliceSourcesRef.current.forEach(source => {
+      try {
+        source.stop();
+      } catch (e) {
+        // Source may already be stopped
       }
     });
     activeSliceSourcesRef.current = [];
     setCurrentlyPlayingSlice(null);
   }, []);
 
-  // Play slice with 5ms fade-in and tempo sync
+  // Play slice
   const playSlice = useCallback((sliceNum: number) => {
     if (!masterBuffer || !slices.has(sliceNum)) return;
 
@@ -154,85 +177,111 @@ const Index = () => {
 
     const { region, settings } = slices.get(sliceNum)!;
     const startTime = region.start;
-    const duration = region.end - startTime;
+    const endTime = region.end;
+    const duration = endTime - startTime;
 
-    // Create Tone.js player from buffer
-    const player = new Tone.Player({
-      url: masterBuffer,
-      fadeIn: 0.005, // 5ms fade-in
-    }).toDestination();
+    const source = ctx.createBufferSource();
+    source.buffer = masterBuffer;
 
     // Apply settings
-    player.volume.value = Tone.gainToDb(settings.volume);
-    player.playbackRate = Math.pow(2, settings.transpose / 12) * settings.tempo;
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = settings.volume;
 
-    // Reverb
-    if (settings.reverb > 0) {
-      const reverb = new Tone.Reverb({
-        decay: 2,
-        wet: settings.reverb,
-      }).toDestination();
-      player.connect(reverb);
-    }
+    // Transpose via playback rate
+    const playbackRate = Math.pow(2, settings.transpose / 12) * settings.tempo;
+    source.playbackRate.value = playbackRate;
 
-    // Start playback
-    const playDuration = duration / player.playbackRate;
-    player.start(Tone.now(), startTime, playDuration);
+    // Simple reverb (convolver would be better but requires impulse response)
+    const delay = ctx.createDelay();
+    const feedback = ctx.createGain();
+    delay.delayTime.value = 0.05;
+    feedback.gain.value = settings.reverb * 0.5;
+    
+    const dryGain = ctx.createGain();
+    const wetGain = ctx.createGain();
+    dryGain.gain.value = 1 - settings.reverb;
+    wetGain.gain.value = settings.reverb;
+
+    source.connect(gainNode);
+    gainNode.connect(dryGain).connect(masterGainNode.gainNode);
+    gainNode.connect(delay);
+    delay.connect(feedback);
+    feedback.connect(delay);
+    delay.connect(wetGain).connect(masterGainNode.gainNode);
+
+    source.start(ctx.currentTime, startTime, duration / playbackRate);
 
     if (settings.mode === 'loop') {
-      player.loop = true;
-      player.loopStart = startTime;
-      player.loopEnd = region.end;
+      source.loop = true;
+      source.loopStart = startTime;
+      source.loopEnd = endTime;
+    } else if (settings.mode === 'oneshot') {
+      source.stop(ctx.currentTime + duration / playbackRate);
+    } else {
+      source.stop(ctx.currentTime + duration / playbackRate);
     }
 
-    activeSliceSourcesRef.current.push(player);
+    activeSliceSourcesRef.current.push(source);
     setCurrentlyPlayingSlice(sliceNum);
     setLastPlayedSlice(sliceNum);
 
     // Clean up after playback
-    player.onstop = () => {
-      activeSliceSourcesRef.current = activeSliceSourcesRef.current.filter(p => p !== player);
+    source.onended = () => {
+      activeSliceSourcesRef.current = activeSliceSourcesRef.current.filter(s => s !== source);
       if (activeSliceSourcesRef.current.length === 0) {
         setCurrentlyPlayingSlice(null);
       }
-      player.dispose();
     };
+  }, [masterBuffer, slices, ctx, masterGainNode, stopCurrentSlice]);
 
-    if (settings.mode !== 'loop') {
-      setTimeout(() => {
-        if (player.state === "started") {
-          player.stop();
-        }
-      }, playDuration * 1000);
-    }
-  }, [masterBuffer, slices, stopCurrentSlice]);
+  // Play drum pad
+  const playDrumPad = useCallback((key: string) => {
+    const pad = drumPads.find(p => p.key === key);
+    if (!pad?.audioBuffer) return;
 
+    const source = ctx.createBufferSource();
+    source.buffer = pad.audioBuffer;
+
+    // Apply EQ
+    const lowFilter = ctx.createBiquadFilter();
+    lowFilter.type = 'lowshelf';
+    lowFilter.frequency.value = 200;
+    lowFilter.gain.value = pad.eq.low;
+
+    const midFilter = ctx.createBiquadFilter();
+    midFilter.type = 'peaking';
+    midFilter.frequency.value = 1000;
+    midFilter.gain.value = pad.eq.mid;
+    midFilter.Q.value = 1;
+
+    const highFilter = ctx.createBiquadFilter();
+    highFilter.type = 'highshelf';
+    highFilter.frequency.value = 3000;
+    highFilter.gain.value = pad.eq.high;
+
+    source.connect(lowFilter);
+    lowFilter.connect(midFilter);
+    midFilter.connect(highFilter);
+    highFilter.connect(masterGainNode.gainNode);
+
+    source.start();
+    audioSourcesRef.current.push(source);
+  }, [drumPads, ctx, masterGainNode]);
 
   // Keyboard handling
   useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toUpperCase();
       
-      // Handle spacebar for transport control
+      // Handle spacebar to stop all audio and replay last sample
       if (e.code === 'Space') {
         e.preventDefault();
-        
-        // Start Tone.js context if needed
-        if (Tone.context.state !== 'running') {
-          await Tone.start();
-        }
-        
-        if (isPlaying || currentlyPlayingSlice !== null) {
+        if (currentlyPlayingSlice !== null || audioSourcesRef.current.length > 0) {
+          // If anything is playing, stop everything
           stopAllAudio();
-        } else {
-          // Start transport
-          setIsPlaying(true);
-          Tone.Transport.start();
-          
-          // If there was a last played slice, replay it
-          if (lastPlayedSlice !== null) {
-            playSlice(lastPlayedSlice);
-          }
+        } else if (lastPlayedSlice !== null) {
+          // If nothing playing, replay the last slice
+          playSlice(lastPlayedSlice);
         }
         return;
       }
@@ -244,12 +293,13 @@ const Index = () => {
       // Check for slice keys
       const sliceNum = parseInt(key);
       if (!isNaN(sliceNum) && sliceNum >= 1 && sliceNum <= 9) {
-        // Start Tone.js context if needed
-        if (Tone.context.state !== 'running') {
-          await Tone.start();
-        }
         playSlice(sliceNum);
         setActiveSlice(sliceNum);
+      }
+
+      // Check for drum keys
+      if (['D', 'F', 'G', 'H', 'J', 'K'].includes(key)) {
+        playDrumPad(key);
       }
     };
 
@@ -269,7 +319,7 @@ const Index = () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [playSlice, activeKeys, currentlyPlayingSlice, lastPlayedSlice, stopAllAudio, isPlaying]);
+  }, [playSlice, playDrumPad, activeKeys, currentlyPlayingSlice, lastPlayedSlice, stopAllAudio]);
 
   // Update slice settings
   const updateSliceSettings = (sliceNum: number, settings: SliceSettings) => {
@@ -309,8 +359,28 @@ const Index = () => {
     });
   };
 
+  // Handle drum sample upload
+  const handleDrumSampleUpload = async (key: string, file: File) => {
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = await ctx.decodeAudioData(arrayBuffer);
+    
+    setDrumPads(prev => prev.map(pad => 
+      pad.key === key 
+        ? { ...pad, sampleName: file.name, audioBuffer: buffer }
+        : pad
+    ));
+    
+    toast.success(`Sample loaded for ${key}`);
+  };
 
-  // Enhanced Smart clean processing
+  // Handle drum EQ change
+  const handleDrumEQChange = (key: string, eq: { low: number; mid: number; high: number }) => {
+    setDrumPads(prev => prev.map(pad => 
+      pad.key === key ? { ...pad, eq } : pad
+    ));
+  };
+
+  // Smart clean processing
   const processCleanAudio = useCallback(async () => {
     if (!masterBuffer) return null;
 
@@ -323,54 +393,36 @@ const Index = () => {
     const source = offlineContext.createBufferSource();
     source.buffer = masterBuffer;
 
+    // Build processing chain based on clean value
     let lastNode: AudioNode = source;
 
     if (cleanValue > 0) {
-      // Light highpass + compression (1-40%)
+      // Highpass filter (increases with value)
       const hpFilter = offlineContext.createBiquadFilter();
       hpFilter.type = 'highpass';
-      hpFilter.frequency.value = 50 + (cleanValue / 100) * 150;
+      hpFilter.frequency.value = 50 + (cleanValue / 100) * 200;
       lastNode.connect(hpFilter);
       lastNode = hpFilter;
 
-      // Add compression above 1%
-      if (cleanValue > 1) {
+      // Compressor (mild)
+      if (cleanValue > 40) {
         const compressor = offlineContext.createDynamicsCompressor();
-        compressor.threshold.value = -20 - (cleanValue / 100) * 10;
-        compressor.knee.value = 8;
-        compressor.ratio.value = 3 + (cleanValue / 100) * 9;
+        compressor.threshold.value = -30;
+        compressor.knee.value = 10;
+        compressor.ratio.value = 4;
         compressor.attack.value = 0.003;
-        compressor.release.value = 0.15;
+        compressor.release.value = 0.25;
         lastNode.connect(compressor);
         lastNode = compressor;
       }
 
-      // Stronger processing (41-70%)
-      if (cleanValue > 40) {
-        const noiseGate = offlineContext.createBiquadFilter();
-        noiseGate.type = 'highpass';
-        noiseGate.frequency.value = 150 + ((cleanValue - 40) / 30) * 250;
-        lastNode.connect(noiseGate);
-        lastNode = noiseGate;
-      }
-
-      // Aggressive clean (71-100%)
-      if (cleanValue > 70) {
+      // Lowpass for smoothing at high values
+      if (cleanValue > 80) {
         const lpFilter = offlineContext.createBiquadFilter();
         lpFilter.type = 'lowpass';
-        lpFilter.frequency.value = 12000 - ((cleanValue - 70) / 30) * 4000;
+        lpFilter.frequency.value = 12000 - (cleanValue - 80) * 200;
         lastNode.connect(lpFilter);
         lastNode = lpFilter;
-
-        // Final limiter
-        const limiter = offlineContext.createDynamicsCompressor();
-        limiter.threshold.value = -6;
-        limiter.knee.value = 0;
-        limiter.ratio.value = 20;
-        limiter.attack.value = 0.001;
-        limiter.release.value = 0.1;
-        lastNode.connect(limiter);
-        lastNode = limiter;
       }
     }
 
@@ -385,14 +437,11 @@ const Index = () => {
     try {
       const processedBuffer = await processCleanAudio();
       if (processedBuffer) {
-        // Start Tone.js context if needed
-        if (Tone.context.state !== 'running') {
-          await Tone.start();
-        }
-        
-        const player = new Tone.Player(processedBuffer).toDestination();
-        player.start();
-        toast.success("Playing cleaned audio (press spacebar to stop)");
+        const source = ctx.createBufferSource();
+        source.buffer = processedBuffer;
+        source.connect(masterGainNode.gainNode);
+        source.start();
+        toast.success("Playing cleaned audio");
       }
     } catch (error) {
       toast.error("Error processing audio");
@@ -418,16 +467,17 @@ const Index = () => {
     }
   };
 
-  // Recording with Tone.js
-  const startRecording = async () => {
+  // Recording - proper implementation with master gain routing
+  const startRecording = () => {
     try {
-      if (Tone.context.state !== 'running') {
-        await Tone.start();
-      }
-
-      const dest = Tone.context.createMediaStreamDestination();
-      Tone.getDestination().connect(dest);
+      // Create a media stream destination for recording
+      const dest = ctx.createMediaStreamDestination();
+      recordingDestRef.current = dest;
       
+      // Connect master gain to the recording destination
+      masterGainNode.gainNode.connect(dest);
+      
+      // Create a media recorder from the destination stream
       const mediaRecorder = new MediaRecorder(dest.stream, {
         mimeType: 'audio/webm'
       });
@@ -443,12 +493,19 @@ const Index = () => {
       mediaRecorder.onstop = () => {
         const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' });
         setRecordedBlob(blob);
+        
+        // Disconnect recording destination
+        if (recordingDestRef.current) {
+          masterGainNode.gainNode.disconnect(recordingDestRef.current);
+          recordingDestRef.current = null;
+        }
+        
         toast.success("Recording complete");
       };
 
       mediaRecorder.start();
       setIsRecording(true);
-      toast.success("Recording started - play slices and sequencer!");
+      toast.success("Recording started - play slices and drums!");
     } catch (error) {
       toast.error("Recording not supported in this browser");
       console.error(error);
@@ -462,14 +519,14 @@ const Index = () => {
 
   const downloadRecording = () => {
     if (recordedBlob) {
-      downloadBlob(recordedBlob, `blipbloop_perf_${bpm}bpm.webm`);
+      downloadBlob(recordedBlob, 'performance.webm');
       toast.success("Performance downloaded");
     }
   };
 
   return (
     <div className="min-h-screen bg-background">
-      <Header bpm={bpm} onBpmChange={setBpm} isPlaying={isPlaying} />
+      <Header />
       
       <main className="max-w-[1600px] mx-auto p-6 space-y-6">
         {/* File input */}
@@ -496,13 +553,13 @@ const Index = () => {
               onWaveSurferReady={handleWaveSurferReady}
             />
             <div className="text-xs text-muted-foreground text-center">
-              Press <kbd className="px-1.5 py-0.5 bg-secondary rounded border border-border">Spacebar</kbd> to start/stop metronome + sequencer
+              Press <kbd className="px-1.5 py-0.5 bg-secondary rounded border border-border">Spacebar</kbd> to stop all audio / replay last sample
             </div>
           </div>
         )}
 
         {/* Main controls grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Slice controls */}
           <div>
             {activeSlice && slices.has(activeSlice) && (
@@ -513,6 +570,17 @@ const Index = () => {
                 onDelete={() => deleteSlice(activeSlice)}
               />
             )}
+          </div>
+
+          {/* Drum pads */}
+          <div>
+            <DrumPads
+              pads={drumPads}
+              onPadTrigger={playDrumPad}
+              onSampleUpload={handleDrumSampleUpload}
+              onEQChange={handleDrumEQChange}
+              activePad={null}
+            />
           </div>
 
           {/* Smart clean */}
@@ -526,9 +594,6 @@ const Index = () => {
             />
           </div>
         </div>
-
-        {/* Sequencer */}
-        <Sequencer bpm={bpm} isPlaying={isPlaying} />
 
         {/* Keyboard triggers */}
         <KeyboardTriggers activeKeys={activeKeys} />
