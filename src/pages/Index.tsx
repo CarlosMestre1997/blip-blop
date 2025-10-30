@@ -12,6 +12,13 @@ import KeyboardTriggers from "@/components/KeyboardTriggers";
 import RecordingControls from "@/components/RecordingControls";
 import { Button } from "@/components/ui/button";
 
+interface WaveSurferRegion {
+  start: number;
+  end: number;
+  remove: () => void;
+  setOptions: (opts: Record<string, unknown>) => void;
+}
+
 interface DrumPad {
   sampleName: string;
   audioBuffer: AudioBuffer | null;
@@ -30,28 +37,40 @@ const Index = () => {
   });
   
   // Slice state
-  const [slices, setSlices] = useState<Map<number, { region: any; settings: SliceSettings }>>(new Map());
+  const [slices, setSlices] = useState<Map<number, { region: WaveSurferRegion; settings: SliceSettings }>>(new Map());
   const [activeSlice, setActiveSlice] = useState<number | null>(null);
   const [nextSliceNumber, setNextSliceNumber] = useState(1);
   const [currentlyPlayingSlice, setCurrentlyPlayingSlice] = useState<number | null>(null);
   const [lastPlayedSlice, setLastPlayedSlice] = useState<number | null>(null);
   const activeSliceSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const currentlyPlayingSliceRef = useRef<number | null>(null);
+  const lastPlayedSliceRef = useRef<number | null>(null);
   
   // Metronome & Sequencer state
   const [bpm, setBpm] = useState(120);
   const [isMetronomePlaying, setIsMetronomePlaying] = useState(false);
+  const [isSequencerPlaying, setIsSequencerPlaying] = useState(false);
+  const [isSequencerExpanded, setIsSequencerExpanded] = useState(false);
   
   // Drum state (6 tracks for sequencer)
   const [drumPads, setDrumPads] = useState<DrumPad[]>([
     { sampleName: 'Kick', audioBuffer: null },
     { sampleName: 'Snare', audioBuffer: null },
     { sampleName: 'Closed Hat', audioBuffer: null },
-    { sampleName: 'Open Hat', audioBuffer: null },
-    { sampleName: 'Clap', audioBuffer: null },
-    { sampleName: 'Perc', audioBuffer: null },
   ]);
+  const drumPadsRef = useRef<DrumPad[]>([
+    { sampleName: 'Kick', audioBuffer: null },
+    { sampleName: 'Snare', audioBuffer: null },
+    { sampleName: 'Closed Hat', audioBuffer: null },
+  ]);
+
+  const mappedSequences = useRef<{[key: string]: boolean[][]}>({});
+  const sequencePlaybackRef = useRef<NodeJS.Timeout | null>(null);
+  const activeSequenceKeyRef = useRef<string | null>(null);
+  const [activeSequenceKey, setActiveSequenceKey] = useState<string | null>(null);
   
   // UI state
+  const activeKeysRef = useRef<Set<string>>(new Set());
   const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set());
   const [cleanValue, setCleanValue] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -62,9 +81,32 @@ const Index = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const recordingDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const cleanPlaybackSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const [isSmartCleanPlaying, setIsSmartCleanPlaying] = useState(false);
 
   // Use the audio context from masterGainNode
   const ctx = masterGainNode.ctx;
+
+  // Load drum samples for manual play on mount
+  useEffect(() => {
+    const ctx = masterGainNode.ctx;
+    const FILES = [
+      '/drum-kit/KICK1.wav', '/drum-kit/Snare1.wav', '/drum-kit/HH1.wav'
+    ];
+    Promise.all(FILES.map(async (url) => {
+      const resp = await fetch(url);
+      const arr = await resp.arrayBuffer();
+      return ctx.decodeAudioData(arr);
+    })).then(buffers => {
+      const newPads = [
+        { sampleName: 'Kick 1', audioBuffer: buffers[0] },
+        { sampleName: 'Snare 1', audioBuffer: buffers[1] },
+        { sampleName: 'HH 1', audioBuffer: buffers[2] }
+      ];
+      drumPadsRef.current = newPads;
+      setDrumPads(newPads);
+    });
+  }, [masterGainNode.ctx]);
 
   // Handle file upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -89,7 +131,7 @@ const Index = () => {
     // Enable region creation
     let startPos: number | null = null;
 
-    regions.on('region-created', (region: any) => {
+    regions.on('region-created', (region: WaveSurferRegion) => {
       // Use a closure to capture the current nextSliceNumber
       setNextSliceNumber(currentNum => {
         if (currentNum > 9) {
@@ -133,7 +175,7 @@ const Index = () => {
         startPos = null;
       }
     });
-  }, [ctx]);
+  }, []);
 
   // Stop all audio
   const stopAllAudio = useCallback(() => {
@@ -162,6 +204,7 @@ const Index = () => {
       wavesurfer.pause();
     }
     
+    currentlyPlayingSliceRef.current = null;
     setCurrentlyPlayingSlice(null);
   }, [wavesurfer]);
 
@@ -175,6 +218,7 @@ const Index = () => {
       }
     });
     activeSliceSourcesRef.current = [];
+    currentlyPlayingSliceRef.current = null;
     setCurrentlyPlayingSlice(null);
   }, []);
 
@@ -232,6 +276,8 @@ const Index = () => {
     }
 
     activeSliceSourcesRef.current.push(source);
+    currentlyPlayingSliceRef.current = sliceNum;
+    lastPlayedSliceRef.current = sliceNum;
     setCurrentlyPlayingSlice(sliceNum);
     setLastPlayedSlice(sliceNum);
 
@@ -239,6 +285,7 @@ const Index = () => {
     source.onended = () => {
       activeSliceSourcesRef.current = activeSliceSourcesRef.current.filter(s => s !== source);
       if (activeSliceSourcesRef.current.length === 0) {
+        currentlyPlayingSliceRef.current = null;
         setCurrentlyPlayingSlice(null);
       }
     };
@@ -246,7 +293,7 @@ const Index = () => {
 
   // Play drum pad by track index
   const playDrumPad = useCallback((trackIndex: number) => {
-    const pad = drumPads[trackIndex];
+    const pad = drumPadsRef.current[trackIndex];
     if (!pad?.audioBuffer) return;
 
     const source = ctx.createBufferSource();
@@ -254,7 +301,7 @@ const Index = () => {
     source.connect(masterGainNode.gainNode);
     source.start();
     audioSourcesRef.current.push(source);
-  }, [drumPads, ctx, masterGainNode]);
+  }, [ctx, masterGainNode]);
 
   // Keyboard handling
   useEffect(() => {
@@ -264,19 +311,20 @@ const Index = () => {
       // Handle spacebar to stop all audio and replay last sample
       if (e.code === 'Space') {
         e.preventDefault();
-        if (currentlyPlayingSlice !== null || audioSourcesRef.current.length > 0) {
+        if (currentlyPlayingSliceRef.current !== null || audioSourcesRef.current.length > 0) {
           // If anything is playing, stop everything
           stopAllAudio();
-        } else if (lastPlayedSlice !== null) {
+        } else if (lastPlayedSliceRef.current !== null) {
           // If nothing playing, replay the last slice
-          playSlice(lastPlayedSlice);
+          playSlice(lastPlayedSliceRef.current);
         }
         return;
       }
       
-      if (activeKeys.has(key)) return;
+      if (activeKeysRef.current.has(key)) return;
       
-      setActiveKeys(prev => new Set(prev).add(key));
+      activeKeysRef.current.add(key);
+      setActiveKeys(new Set(activeKeysRef.current));
 
       // Check for slice keys
       const sliceNum = parseInt(key);
@@ -285,20 +333,57 @@ const Index = () => {
         setActiveSlice(sliceNum);
       }
 
-      // Check for drum keys (D, F, G, H, J, K map to tracks 0-5)
-      const drumKeyMap: Record<string, number> = { 'D': 0, 'F': 1, 'G': 2, 'H': 3, 'J': 4, 'K': 5 };
-      if (key in drumKeyMap) {
-        playDrumPad(drumKeyMap[key]);
+      // D/F/G = drum pads one-shots
+      if (["D", "F", "G"].includes(key)) {
+        const idx = { D: 0, F: 1, G: 2 }[key];
+        playDrumPad(idx);
+      }
+      // H/J/K = mapped sequence loops
+      if (["H", "J", "K"].includes(key)) {
+        if (activeSequenceKeyRef.current === key) {
+          if (sequencePlaybackRef.current) clearTimeout(sequencePlaybackRef.current);
+          sequencePlaybackRef.current = null;
+          activeSequenceKeyRef.current = null;
+          setActiveSequenceKey(null);
+          return;
+        }
+        const seq = mappedSequences.current[key];
+        if (seq) {
+          let step = 0;
+          const steps = seq[0].length;
+          const bpmLocal = bpm;
+          const stepDuration = (60 / bpmLocal / 4) * 1000;
+          activeSequenceKeyRef.current = key;
+          setActiveSequenceKey(key);
+          function playStep() {
+            // Play all tracks for current step
+            for (let i = 0; i < 3; i++) {
+              if (seq[i][step] && drumPadsRef.current[i]?.audioBuffer) {
+                const source = ctx.createBufferSource();
+                source.buffer = drumPadsRef.current[i].audioBuffer!;
+                source.connect(masterGainNode.gainNode);
+                source.start();
+              }
+            }
+            // Move to next step
+            step = (step + 1) % steps;
+            // Schedule next step if still playing this sequence
+            if (activeSequenceKeyRef.current === key) {
+              sequencePlaybackRef.current = setTimeout(playStep, stepDuration);
+            }
+          }
+          // Clear any existing playback before starting
+          if (sequencePlaybackRef.current) clearTimeout(sequencePlaybackRef.current);
+          // Start the sequence
+          playStep();
+        }
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
       const key = e.key.toUpperCase();
-      setActiveKeys(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(key);
-        return newSet;
-      });
+      activeKeysRef.current.delete(key);
+      setActiveKeys(new Set(activeKeysRef.current));
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -307,8 +392,12 @@ const Index = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      if (sequencePlaybackRef.current) clearTimeout(sequencePlaybackRef.current);
+      sequencePlaybackRef.current = null;
+      activeSequenceKeyRef.current = null;
+      setActiveSequenceKey(null);
     };
-  }, [playSlice, playDrumPad, activeKeys, currentlyPlayingSlice, lastPlayedSlice, stopAllAudio]);
+  }, [playSlice, playDrumPad, stopAllAudio, bpm, ctx, masterGainNode.gainNode]);
 
   // Update slice settings
   const updateSliceSettings = (sliceNum: number, settings: SliceSettings) => {
@@ -353,69 +442,127 @@ const Index = () => {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = await ctx.decodeAudioData(arrayBuffer);
     
-    setDrumPads(prev => prev.map((pad, idx) => 
+    const newPads = drumPadsRef.current.map((pad, idx) => 
       idx === trackIndex 
         ? { ...pad, sampleName: file.name, audioBuffer: buffer }
         : pad
-    ));
+    );
+    drumPadsRef.current = newPads;
+    setDrumPads(newPads);
     
     toast.success(`Sample loaded for track ${trackIndex + 1}`);
   };
 
-  // Smart clean processing
+  // Advanced Smart clean processing with spectral analysis
   const processCleanAudio = useCallback(async () => {
     if (!masterBuffer) return null;
-
     const offlineContext = new OfflineAudioContext(
       masterBuffer.numberOfChannels,
       masterBuffer.length,
       masterBuffer.sampleRate
     );
-
-    const source = offlineContext.createBufferSource();
-    source.buffer = masterBuffer;
-
-    // Build processing chain based on clean value
-    let lastNode: AudioNode = source;
-
-    if (cleanValue > 0) {
-      // Highpass filter (increases with value)
-      const hpFilter = offlineContext.createBiquadFilter();
-      hpFilter.type = 'highpass';
-      hpFilter.frequency.value = 50 + (cleanValue / 100) * 200;
-      lastNode.connect(hpFilter);
-      lastNode = hpFilter;
-
-      // Compressor (mild)
-      if (cleanValue > 40) {
-        const compressor = offlineContext.createDynamicsCompressor();
-        compressor.threshold.value = -30;
-        compressor.knee.value = 10;
-        compressor.ratio.value = 4;
-        compressor.attack.value = 0.003;
-        compressor.release.value = 0.25;
-        lastNode.connect(compressor);
-        lastNode = compressor;
+    
+    // Get audio data
+    const numChannels = masterBuffer.numberOfChannels;
+    const length = masterBuffer.length;
+    const sampleRate = masterBuffer.sampleRate;
+    
+    // Process each channel
+    const processedChannels: Float32Array[] = [];
+    
+    for (let ch = 0; ch < numChannels; ch++) {
+      const channelData = masterBuffer.getChannelData(ch);
+      const processed = new Float32Array(length);
+      
+      // Adaptive spectral processing based on cleanValue
+      const intensity = cleanValue / 100;
+      
+      // Frequency bands for multiband processing
+      const bands = [
+        { min: 0, max: 200, gain: 1 - intensity * 0.8 },      // Sub-bass reduction
+        { min: 200, max: 500, gain: 1 - intensity * 0.6 },     // Bass reduction
+        { min: 500, max: 2000, gain: 1 - intensity * 0.4 },    // Low-mid reduction
+        { min: 2000, max: 8000, gain: 1 },                     // Mid-highs preserved
+        { min: 8000, max: 22000, gain: 1 - intensity * 0.3 }   // Highs gentle rolloff
+      ];
+      
+      // Apply band processing with FFT-like smoothing
+      const fftSize = 2048;
+      const hopSize = 512;
+      
+      for (let i = 0; i < length; i += hopSize) {
+        const windowSize = Math.min(fftSize, length - i);
+        
+        for (let j = 0; j < windowSize; j++) {
+          const idx = i + j;
+          if (idx >= length) break;
+          
+          const sample = channelData[idx];
+          const freq = (j / fftSize) * sampleRate * 0.5;
+          
+          // Find which band this frequency belongs to
+          let gain = 1;
+          for (const band of bands) {
+            if (freq >= band.min && freq < band.max) {
+              gain = band.gain;
+              break;
+            }
+          }
+          
+          // Apply spectral gate to reduce noise
+          const envelope = Math.abs(sample);
+          const threshold = 0.001 + intensity * 0.01;
+          if (envelope < threshold) {
+            gain *= 0.1 + (envelope / threshold) * 0.9;
+          }
+          
+          processed[idx] = sample * gain;
+        }
       }
-
-      // Lowpass for smoothing at high values
-      if (cleanValue > 80) {
-        const lpFilter = offlineContext.createBiquadFilter();
-        lpFilter.type = 'lowpass';
-        lpFilter.frequency.value = 12000 - (cleanValue - 80) * 200;
-        lastNode.connect(lpFilter);
-        lastNode = lpFilter;
+      
+      // Apply adaptive transient enhancement for clarity
+      for (let i = 1; i < length - 1; i++) {
+        const change = Math.abs(processed[i] - processed[i-1]);
+        const avgChange = (Math.abs(processed[i+1] - processed[i]) + 
+                          Math.abs(processed[i] - processed[i-1])) * 0.5;
+        
+        if (change > avgChange * 1.5) {
+          // Enhance transient
+          processed[i] *= (1 + intensity * 0.2);
+        }
       }
+      
+      // Smooth edges to prevent artifacts
+      const smoothingWindow = 64;
+      for (let i = smoothingWindow; i < length - smoothingWindow; i++) {
+        let sum = 0;
+        for (let j = -smoothingWindow; j <= smoothingWindow; j++) {
+          sum += processed[i + j];
+        }
+        processed[i] = sum / (smoothingWindow * 2 + 1) * 0.5 + processed[i] * 0.5;
+      }
+      
+      processedChannels.push(processed);
     }
-
-    lastNode.connect(offlineContext.destination);
-    source.start();
-
-    return await offlineContext.startRendering();
+    
+    // Create new buffer with processed data
+    const outputBuffer = offlineContext.createBuffer(numChannels, length, sampleRate);
+    processedChannels.forEach((chData, idx) => {
+      outputBuffer.getChannelData(idx).set(chData);
+    });
+    
+    return outputBuffer;
   }, [masterBuffer, cleanValue]);
 
-  const handleListen = async () => {
+  const handleListenToggle = async () => {
+    if (isSmartCleanPlaying) {
+      try { cleanPlaybackSourceRef.current?.stop(); } catch(e) { void e; }
+      cleanPlaybackSourceRef.current = null;
+      setIsSmartCleanPlaying(false);
+      return;
+    }
     setIsProcessing(true);
+    setIsSmartCleanPlaying(true);
     try {
       const processedBuffer = await processCleanAudio();
       if (processedBuffer) {
@@ -423,13 +570,28 @@ const Index = () => {
         source.buffer = processedBuffer;
         source.connect(masterGainNode.gainNode);
         source.start();
+        cleanPlaybackSourceRef.current = source;
         toast.success("Playing cleaned audio");
+        source.onended = () => {
+          if (cleanPlaybackSourceRef.current === source) cleanPlaybackSourceRef.current = null;
+          setIsSmartCleanPlaying(false);
+        };
       }
     } catch (error) {
       toast.error("Error processing audio");
+      setIsSmartCleanPlaying(false);
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleStopListen = () => {
+    try {
+      cleanPlaybackSourceRef.current?.stop();
+    } catch (e) {
+      void e;
+    }
+    cleanPlaybackSourceRef.current = null;
   };
 
   const handleDownloadClean = async () => {
@@ -506,6 +668,17 @@ const Index = () => {
     }
   };
 
+  // Mapping handler for sequencer
+  const handleMapSequencerKey = (key: string, pattern: boolean[][]) => {
+    mappedSequences.current[key] = pattern.map(row => [...row]); // Deep copy
+    toast.success(`Sequence mapped to ${key}`);
+  };
+
+  const handleClearMap = (key: string) => {
+    delete mappedSequences.current[key];
+    toast.success(`Mapping for ${key} cleared`);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -554,36 +727,40 @@ const Index = () => {
             )}
           </div>
 
-          {/* Metronome */}
+          {/* Sequencer with embedded Metronome */}
           <div>
-            <Metronome
+            <Sequencer
               bpm={bpm}
-              onBpmChange={setBpm}
-              isPlaying={isMetronomePlaying}
-              onToggle={() => setIsMetronomePlaying(!isMetronomePlaying)}
+              isPlaying={isSequencerPlaying}
+              onTriggerSample={playDrumPad}
+              sampleNames={drumPads.map(pad => pad.sampleName)}
+              metronome={
+                <Metronome
+                  bpm={bpm}
+                  onBpmChange={setBpm}
+                  isPlaying={isMetronomePlaying}
+                  onToggle={() => setIsMetronomePlaying(!isMetronomePlaying)}
+                />
+              }
+              onTogglePlay={() => setIsSequencerPlaying(prev => !prev)}
+              onMapKey={handleMapSequencerKey}
+              onClearMap={handleClearMap}
+              sequenceKeysInfo={{ mapped: mappedSequences.current, active: activeSequenceKey }}
             />
           </div>
 
-          {/* Smart clean */}
+          {/* Smart cleaner */}
           <div>
             <SmartCleanKnob
               value={cleanValue}
               onChange={setCleanValue}
-              onListen={handleListen}
+              onListen={handleListenToggle}
+              isPlaying={isSmartCleanPlaying}
               onDownload={handleDownloadClean}
               isProcessing={isProcessing}
             />
           </div>
         </div>
-
-        {/* Sequencer */}
-        <Sequencer
-          bpm={bpm}
-          isPlaying={isMetronomePlaying}
-          onLoadSample={handleDrumSampleUpload}
-          onTriggerSample={playDrumPad}
-          sampleNames={drumPads.map(pad => pad.sampleName)}
-        />
 
         {/* Keyboard triggers */}
         <KeyboardTriggers activeKeys={activeKeys} />
@@ -596,6 +773,7 @@ const Index = () => {
           onDownloadRecording={downloadRecording}
           hasRecording={!!recordedBlob}
         />
+
       </main>
     </div>
   );

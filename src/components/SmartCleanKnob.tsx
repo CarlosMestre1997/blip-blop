@@ -5,11 +5,12 @@ interface SmartCleanKnobProps {
   value: number;
   onChange: (value: number) => void;
   onListen: () => void;
+  isPlaying: boolean;
   onDownload: () => void;
   isProcessing: boolean;
 }
 
-const SmartCleanKnob = ({ value, onChange, onListen, onDownload, isProcessing }: SmartCleanKnobProps) => {
+const SmartCleanKnob = ({ value, onChange, onListen, isPlaying, onDownload, isProcessing }: SmartCleanKnobProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const knobRef = useRef<HTMLDivElement>(null);
 
@@ -39,7 +40,10 @@ const SmartCleanKnob = ({ value, onChange, onListen, onDownload, isProcessing }:
 
   return (
     <div className="border-2 border-border rounded p-4 bg-card space-y-3">
-      <div className="text-xs font-bold">Smart clean =</div>
+      <div className="text-xs font-bold flex items-center justify-between">
+        <span>Smart Cleaner</span>
+        <span className="text-[10px] opacity-70">AI Enhanced</span>
+      </div>
       
       <div className="flex flex-col items-center">
         <div
@@ -49,7 +53,7 @@ const SmartCleanKnob = ({ value, onChange, onListen, onDownload, isProcessing }:
         >
           <div className="absolute inset-0 rounded-full border-4 border-border bg-background"></div>
           <div 
-            className="absolute inset-2 rounded-full bg-primary"
+            className="absolute inset-2 rounded-full bg-gradient-to-br from-primary via-primary/80 to-primary/60"
             style={{ transform: `rotate(${rotation}deg)` }}
           >
             <div className="absolute top-1 left-1/2 w-1 h-6 bg-primary-foreground -ml-0.5 rounded-full"></div>
@@ -57,6 +61,9 @@ const SmartCleanKnob = ({ value, onChange, onListen, onDownload, isProcessing }:
         </div>
         
         <div className="mt-2 text-2xl font-bold">{Math.round(value)}%</div>
+        <div className="text-[10px] text-muted-foreground text-center">
+          Spectral Processing
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -67,7 +74,7 @@ const SmartCleanKnob = ({ value, onChange, onListen, onDownload, isProcessing }:
           variant="outline"
           size="sm"
         >
-          Listen
+          {isPlaying ? 'Stop' : 'Listen'}
         </Button>
         <Button
           onClick={onDownload}

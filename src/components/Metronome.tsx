@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Slider } from "@/components/ui/slider";
+import MetronomeKnob from "./MetronomeKnob";
 
 interface MetronomeProps {
   bpm: number;
@@ -11,12 +11,53 @@ interface MetronomeProps {
 const Metronome = ({ bpm, onBpmChange, isPlaying, onToggle }: MetronomeProps) => {
   const [activeBeat, setActiveBeat] = useState<1 | 2>(1);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const audioBufferRef = useRef<AudioBuffer | null>(null);
+  const ctxRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  // Preload metronome sound HH3 on mount
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        ctxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const resp = await fetch("/drum-kit/HH3.wav");
+        const buffer = await resp.arrayBuffer();
+        const decoded = await ctxRef.current.decodeAudioData(buffer);
+        if (isMounted) audioBufferRef.current = decoded;
+      } catch (err) {
+        console.warn("Failed to load metronome sound", err);
+      }
+    })();
+    return () => { isMounted = false; ctxRef.current?.close(); }
+  }, []);
+
+  function playSound() {
+    const ctx = ctxRef.current;
+    const buffer = audioBufferRef.current;
+    if (!ctx || !buffer) return;
+    // Stop previous node if needed
+    try { sourceRef.current?.stop(); } catch { /* ignore */ }
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(ctx.destination);
+      src.start();
+      sourceRef.current = src;
+    } catch (err) {
+      console.warn("Failed to play metronome sound", err);
+    }
+  }
 
   useEffect(() => {
     if (isPlaying) {
-      const interval = (60 / bpm) * 1000; // milliseconds per beat
+      playSound(); // Immediate
+      const interval = (60 / bpm) * 1000;
       intervalRef.current = setInterval(() => {
-        setActiveBeat(prev => prev === 1 ? 2 : 1);
+        setActiveBeat(prev => {
+          playSound(); // Play each beat
+          return prev === 1 ? 2 : 1;
+        });
       }, interval);
     } else {
       if (intervalRef.current) {
@@ -25,7 +66,6 @@ const Metronome = ({ bpm, onBpmChange, isPlaying, onToggle }: MetronomeProps) =>
       }
       setActiveBeat(1);
     }
-
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -34,42 +74,28 @@ const Metronome = ({ bpm, onBpmChange, isPlaying, onToggle }: MetronomeProps) =>
   }, [isPlaying, bpm]);
 
   return (
-    <div className="border-2 border-border rounded p-4 bg-card">
-      <h3 className="text-sm font-bold mb-3">Metronome</h3>
-      
-      <div className="flex items-center gap-4 mb-4">
-        <button
-          onClick={onToggle}
-          className="border-2 border-border rounded p-2 flex gap-2 hover:bg-accent transition-colors"
-        >
-          <div 
-            className={`w-3 h-3 rounded-full transition-colors ${
-              isPlaying && activeBeat === 1 
-                ? 'bg-ring' 
-                : 'bg-muted'
-            }`}
-          />
-          <div 
-            className={`w-3 h-3 rounded-full transition-colors ${
-              isPlaying && activeBeat === 2 
-                ? 'bg-ring' 
-                : 'bg-muted'
-            }`}
-          />
-        </button>
-        
-        <div className="flex-1">
-          <div className="text-xs mb-1">Tempo: {bpm} BPM</div>
-          <Slider
-            value={[bpm]}
-            onValueChange={([value]) => onBpmChange(value)}
-            min={40}
-            max={240}
-            step={1}
-            className="w-full"
-          />
-        </div>
-      </div>
+    <div className="flex items-center gap-2">
+      <button
+        onClick={onToggle}
+        className="border-2 border-border rounded p-2 flex gap-1 hover:bg-accent transition-colors"
+        style={{minWidth: 36}}
+      >
+        <div
+          className={`w-3 h-3 rounded-full transition-colors ${isPlaying && activeBeat === 1 ? 'bg-ring' : 'bg-muted'}`}
+        />
+        <div
+          className={`w-3 h-3 rounded-full transition-colors ${isPlaying && activeBeat === 2 ? 'bg-ring' : 'bg-muted'}`}
+        />
+      </button>
+      <MetronomeKnob
+        value={bpm}
+        onChange={onBpmChange}
+        min={40}
+        max={240}
+        step={1}
+        size={36}
+      />
+      <span className="text-xs font-medium ml-2">Tempo: {bpm} BPM</span>
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import { Slider } from "@/components/ui/slider";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 
 export interface SliceSettings {
@@ -16,6 +16,72 @@ interface SliceControlsProps {
   onDelete: () => void;
 }
 
+interface KnobProps {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  min: number;
+  max: number;
+  step: number;
+  unit?: string;
+  formatValue?: (value: number) => string;
+}
+
+const Knob = ({ label, value, onChange, min, max, step, unit, formatValue }: KnobProps) => {
+  const [isDragging, setIsDragging] = useState(false);
+  const knobRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaY = -e.movementY;
+      const range = max - min;
+      const change = (deltaY / 200) * range; // Slower sensitivity
+      const newValue = Math.max(min, Math.min(max, value + change));
+      onChange(newValue);
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, value, onChange, min, max]);
+
+  const rotation = ((value - min) / (max - min)) * 270 - 135;
+  
+  const displayValue = formatValue ? formatValue(value) : value.toFixed(1);
+
+  return (
+    <div className="flex flex-col items-center">
+      <div className="text-[10px] text-muted-foreground mb-1">{label}</div>
+      <div
+        ref={knobRef}
+        className="relative w-12 h-12 cursor-pointer select-none"
+        onMouseDown={() => setIsDragging(true)}
+      >
+        <div className="absolute inset-0 rounded-full border-2 border-border bg-background"></div>
+        <div 
+          className="absolute inset-1 rounded-full bg-primary"
+          style={{ transform: `rotate(${rotation}deg)` }}
+        >
+          <div className="absolute top-0.5 left-1/2 w-0.5 h-3 bg-primary-foreground -ml-0.5 rounded-full"></div>
+        </div>
+      </div>
+      <div className="text-[10px] mt-1 font-bold">
+        {displayValue}{unit && ` ${unit}`}
+      </div>
+    </div>
+  );
+};
+
 const SliceControls = ({ sliceNumber, settings, onSettingsChange, onDelete }: SliceControlsProps) => {
   return (
     <div className="border-2 border-border rounded p-4 bg-card space-y-4">
@@ -32,51 +98,43 @@ const SliceControls = ({ sliceNumber, settings, onSettingsChange, onDelete }: Sl
       </div>
       
       <div className="space-y-3">
-        <div>
-          <label className="text-xs block mb-1">Volume:</label>
-          <Slider
-            value={[settings.volume * 100]}
-            onValueChange={([value]) => onSettingsChange({ ...settings, volume: value / 100 })}
+        <div className="grid grid-cols-4 gap-2">
+          <Knob
+            label="Volume"
+            value={settings.volume * 100}
+            onChange={(value) => onSettingsChange({ ...settings, volume: value / 100 })}
+            min={0}
             max={100}
             step={1}
-            className="w-full"
+            unit="%"
           />
-        </div>
-
-        <div>
-          <label className="text-xs block mb-1">Tempo:</label>
-          <Slider
-            value={[settings.tempo * 100]}
-            onValueChange={([value]) => onSettingsChange({ ...settings, tempo: value / 100 })}
+          <Knob
+            label="Tempo"
+            value={settings.tempo * 100}
+            onChange={(value) => onSettingsChange({ ...settings, tempo: value / 100 })}
             min={50}
             max={200}
             step={1}
-            className="w-full"
+            unit="%"
           />
-          <span className="text-xs text-muted-foreground">{Math.round(settings.tempo * 100)}%</span>
-        </div>
-
-        <div>
-          <label className="text-xs block mb-1">Transpose:</label>
-          <Slider
-            value={[settings.transpose]}
-            onValueChange={([value]) => onSettingsChange({ ...settings, transpose: value })}
+          <Knob
+            label="Transpose"
+            value={settings.transpose}
+            onChange={(value) => onSettingsChange({ ...settings, transpose: Math.round(value) })}
             min={-12}
             max={12}
             step={1}
-            className="w-full"
+            formatValue={(v) => (v > 0 ? '+' : '') + Math.round(v)}
+            unit="st"
           />
-          <span className="text-xs text-muted-foreground">{settings.transpose > 0 ? '+' : ''}{settings.transpose} semitones</span>
-        </div>
-
-        <div>
-          <label className="text-xs block mb-1">Reverb:</label>
-          <Slider
-            value={[settings.reverb * 100]}
-            onValueChange={([value]) => onSettingsChange({ ...settings, reverb: value / 100 })}
+          <Knob
+            label="Reverb"
+            value={settings.reverb * 100}
+            onChange={(value) => onSettingsChange({ ...settings, reverb: value / 100 })}
+            min={0}
             max={100}
             step={1}
-            className="w-full"
+            unit="%"
           />
         </div>
 
