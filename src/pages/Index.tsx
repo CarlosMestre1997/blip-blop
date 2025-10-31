@@ -11,6 +11,7 @@ import SmartCleanKnob from "@/components/SmartCleanKnob";
 import KeyboardTriggers from "@/components/KeyboardTriggers";
 import RecordingControls from "@/components/RecordingControls";
 import { Button } from "@/components/ui/button";
+import { convertAudioToFormat } from "@/lib/audioConverter";
 
 interface WaveSurferRegion {
   start: number;
@@ -677,14 +678,20 @@ const Index = () => {
     cleanPlaybackSourceRef.current = null;
   };
 
-  const handleDownloadClean = async () => {
+  const handleDownloadClean = async (format: 'wav' | 'mp3') => {
     setIsProcessing(true);
     try {
       const processedBuffer = await processCleanAudio();
       if (processedBuffer) {
         const wav = audioBufferToWav(processedBuffer);
-        const blob = new Blob([wav], { type: 'audio/wav' });
-        downloadBlob(blob, 'cleaned-audio.wav');
+        const wavBlob = new Blob([wav], { type: 'audio/wav' });
+        
+        const finalBlob = format === 'mp3' 
+          ? await convertAudioToFormat(wavBlob, 'mp3')
+          : wavBlob;
+        
+        const extension = format === 'mp3' ? 'mp3' : 'wav';
+        downloadBlob(finalBlob, `cleaned-audio.${extension}`);
         toast.success("Download started");
       }
     } catch (error) {
@@ -744,10 +751,20 @@ const Index = () => {
     setIsRecording(false);
   };
 
-  const downloadRecording = () => {
+  const downloadRecording = async (format: 'wav' | 'mp3') => {
     if (recordedBlob) {
-      downloadBlob(recordedBlob, 'performance.webm');
-      toast.success("Performance downloaded");
+      try {
+        const finalBlob = format === 'mp3' 
+          ? await convertAudioToFormat(recordedBlob, 'mp3')
+          : recordedBlob;
+        
+        const extension = format === 'mp3' ? 'mp3' : 'webm';
+        downloadBlob(finalBlob, `performance.${extension}`);
+        toast.success("Performance downloaded");
+      } catch (error) {
+        console.error('Error converting audio:', error);
+        toast.error("Error during download");
+      }
     }
   };
 

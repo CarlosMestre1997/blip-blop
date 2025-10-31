@@ -1,12 +1,19 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface SmartCleanKnobProps {
   value: number;
   onChange: (value: number) => void;
   onListen: () => void;
   isPlaying: boolean;
-  onDownload: () => void;
+  onDownload: (format: 'wav' | 'mp3') => void;
   isProcessing: boolean;
 }
 
@@ -76,14 +83,26 @@ const SmartCleanKnob = ({ value, onChange, onListen, isPlaying, onDownload, isPr
         >
           {isPlaying ? 'Stop' : 'Listen'}
         </Button>
-        <Button
-          onClick={onDownload}
-          disabled={isProcessing}
-          className="w-full"
-          size="sm"
-        >
-          Download
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              disabled={isProcessing}
+              className="w-full"
+              size="sm"
+            >
+              <Download className="w-3 h-3 mr-2" />
+              Download
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onClick={() => onDownload('wav')}>
+              Download as WAV
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onDownload('mp3')}>
+              Download as MP3
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

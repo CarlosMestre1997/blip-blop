@@ -38,44 +38,32 @@ const KeyboardTriggers = ({ activeKeys, isLoopRecording, isLoopPlaying }: Keyboa
 
   return (
     <div className="space-y-3 p-4">
-      <div>
-        <div className="flex items-center gap-3 mb-2">
-          <span className="text-xs font-medium text-muted-foreground">Slices</span>
-        </div>
-        <div className="flex gap-2 justify-center">
-          {sliceKeys.map((key) => (
-            <KeyboardKey key={key} keyLabel={key} isActive={activeKeys.has(key)} />
-          ))}
-        </div>
+      <div className="flex gap-2 items-center justify-center">
+        <span className="text-xs font-medium text-muted-foreground mr-1">Slices</span>
+        {sliceKeys.map((key) => (
+          <KeyboardKey key={key} keyLabel={key} isActive={activeKeys.has(key)} />
+        ))}
       </div>
 
-      <div>
-        <div className="flex items-center gap-3 mb-2">
-          <span className="text-xs font-medium text-muted-foreground">Drums</span>
-        </div>
-        <div className="flex gap-2 justify-center">
-          {drumKeys.map((key) => (
-            <KeyboardKey key={key} keyLabel={key} isActive={activeKeys.has(key)} />
-          ))}
-        </div>
+      <div className="flex gap-2 items-center justify-center">
+        <span className="text-xs font-medium text-muted-foreground mr-1">Drums</span>
+        {drumKeys.map((key) => (
+          <KeyboardKey key={key} keyLabel={key} isActive={activeKeys.has(key)} />
+        ))}
       </div>
 
-      <div>
-        <div className="flex items-center justify-center gap-3 mb-2">
-          <span className="text-xs font-medium text-muted-foreground">Loop Control</span>
-          {isLoopRecording && (
-            <span className="text-xs font-bold text-red-500 animate-pulse">● REC</span>
-          )}
-          {isLoopPlaying && (
-            <span className="text-xs font-bold text-primary">▶ LOOP</span>
-          )}
-        </div>
-        <div className="flex gap-2 justify-center items-center">
-          <KeyboardKey keyLabel="L" isActive={activeKeys.has('L')} />
-          <span className="text-[10px] text-muted-foreground ml-1">
-            {!isLoopRecording && !isLoopPlaying ? 'start recording' : isLoopRecording ? 'loop sequence' : 'stop loop'}
-          </span>
-        </div>
+      <div className="flex gap-2 items-center justify-center">
+        <span className="text-xs font-medium text-muted-foreground mr-1">Loop Control</span>
+        {isLoopRecording && (
+          <span className="text-xs font-bold text-red-500 animate-pulse">● REC</span>
+        )}
+        {isLoopPlaying && (
+          <span className="text-xs font-bold text-primary">▶ LOOP</span>
+        )}
+        <KeyboardKey keyLabel="L" isActive={activeKeys.has('L')} />
+        <span className="text-[10px] text-muted-foreground ml-1">
+          {!isLoopRecording && !isLoopPlaying ? 'start recording' : isLoopRecording ? 'loop sequence' : 'stop loop'}
+        </span>
       </div>
     </div>
   );
