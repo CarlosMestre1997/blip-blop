@@ -80,7 +80,7 @@ const Index = () => {
   // Loop recording state
   const [isLoopRecording, setIsLoopRecording] = useState(false);
   const [isLoopPlaying, setIsLoopPlaying] = useState(false);
-  const [recordedLoop, setRecordedLoop] = useState<Array<{ sliceNum: number; time: number }>>([]);
+  const recordedLoopRef = useRef<Array<{ sliceNum: number; time: number }>>([]);
   const loopRecordingStartTimeRef = useRef<number>(0);
   const loopPlaybackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
@@ -291,7 +291,7 @@ const Index = () => {
     // Record to loop if loop recording is active
     if (!skipLoopRecording && isLoopRecording) {
       const currentTime = Date.now() - loopRecordingStartTimeRef.current;
-      setRecordedLoop(prev => [...prev, { sliceNum, time: currentTime }]);
+      recordedLoopRef.current.push({ sliceNum, time: currentTime });
     }
 
     // Clean up after playback
@@ -340,13 +340,13 @@ const Index = () => {
         if (!isLoopRecording && !isLoopPlaying) {
           // Start recording
           setIsLoopRecording(true);
-          setRecordedLoop([]);
+          recordedLoopRef.current = [];
           loopRecordingStartTimeRef.current = Date.now();
           toast.success('Loop recording started - play your slices!');
         } else if (isLoopRecording) {
           // Stop recording and start looping
-          if (recordedLoop.length === 0) {
-            toast.error('No slices recorded in loop');
+          if (recordedLoopRef.current.length === 0) {
+            toast.error('No slices were played during recording');
             setIsLoopRecording(false);
             return;
           }
@@ -354,11 +354,12 @@ const Index = () => {
           setIsLoopPlaying(true);
           
           // Calculate total loop duration
-          const totalDuration = recordedLoop[recordedLoop.length - 1].time + 500; // Add 500ms buffer
+          const loop = recordedLoopRef.current;
+          const totalDuration = loop[loop.length - 1].time + 500; // Add 500ms buffer
           
           // Start playing the loop
           const playLoop = () => {
-            recordedLoop.forEach((event) => {
+            loop.forEach((event) => {
               setTimeout(() => {
                 playSlice(event.sliceNum, true); // Skip loop recording to avoid nested loops
               }, event.time);
@@ -369,7 +370,7 @@ const Index = () => {
           };
           
           playLoop();
-          toast.success(`Loop playing (${recordedLoop.length} slices)`);
+          toast.success(`Loop playing (${loop.length} slices)`);
         } else if (isLoopPlaying) {
           // Stop loop playback
           if (loopPlaybackTimeoutRef.current) {
@@ -377,7 +378,7 @@ const Index = () => {
             loopPlaybackTimeoutRef.current = null;
           }
           setIsLoopPlaying(false);
-          setRecordedLoop([]);
+          recordedLoopRef.current = [];
           toast.success('Loop stopped');
         }
         return;
@@ -515,105 +516,125 @@ const Index = () => {
     toast.success(`Sample loaded for track ${trackIndex + 1}`);
   };
 
-  // Advanced Smart clean processing with spectral analysis
+  // Enhanced Smart Clean processing with Web Audio API filters
   const processCleanAudio = useCallback(async () => {
     if (!masterBuffer) return null;
+    
     const offlineContext = new OfflineAudioContext(
       masterBuffer.numberOfChannels,
       masterBuffer.length,
       masterBuffer.sampleRate
     );
     
-    // Get audio data
-    const numChannels = masterBuffer.numberOfChannels;
-    const length = masterBuffer.length;
-    const sampleRate = masterBuffer.sampleRate;
+    const source = offlineContext.createBufferSource();
+    source.buffer = masterBuffer;
     
-    // Process each channel
-    const processedChannels: Float32Array[] = [];
+    // Clean intensity from 0-100
+    const intensity = cleanValue / 100;
     
-    for (let ch = 0; ch < numChannels; ch++) {
-      const channelData = masterBuffer.getChannelData(ch);
-      const processed = new Float32Array(length);
-      
-      // Adaptive spectral processing based on cleanValue
-      const intensity = cleanValue / 100;
-      
-      // Frequency bands for multiband processing
-      const bands = [
-        { min: 0, max: 200, gain: 1 - intensity * 0.8 },      // Sub-bass reduction
-        { min: 200, max: 500, gain: 1 - intensity * 0.6 },     // Bass reduction
-        { min: 500, max: 2000, gain: 1 - intensity * 0.4 },    // Low-mid reduction
-        { min: 2000, max: 8000, gain: 1 },                     // Mid-highs preserved
-        { min: 8000, max: 22000, gain: 1 - intensity * 0.3 }   // Highs gentle rolloff
-      ];
-      
-      // Apply band processing with FFT-like smoothing
-      const fftSize = 2048;
-      const hopSize = 512;
-      
-      for (let i = 0; i < length; i += hopSize) {
-        const windowSize = Math.min(fftSize, length - i);
-        
-        for (let j = 0; j < windowSize; j++) {
-          const idx = i + j;
-          if (idx >= length) break;
-          
-          const sample = channelData[idx];
-          const freq = (j / fftSize) * sampleRate * 0.5;
-          
-          // Find which band this frequency belongs to
-          let gain = 1;
-          for (const band of bands) {
-            if (freq >= band.min && freq < band.max) {
-              gain = band.gain;
-              break;
-            }
-          }
-          
-          // Apply spectral gate to reduce noise
-          const envelope = Math.abs(sample);
-          const threshold = 0.001 + intensity * 0.01;
-          if (envelope < threshold) {
-            gain *= 0.1 + (envelope / threshold) * 0.9;
-          }
-          
-          processed[idx] = sample * gain;
-        }
-      }
-      
-      // Apply adaptive transient enhancement for clarity
-      for (let i = 1; i < length - 1; i++) {
-        const change = Math.abs(processed[i] - processed[i-1]);
-        const avgChange = (Math.abs(processed[i+1] - processed[i]) + 
-                          Math.abs(processed[i] - processed[i-1])) * 0.5;
-        
-        if (change > avgChange * 1.5) {
-          // Enhance transient
-          processed[i] *= (1 + intensity * 0.2);
-        }
-      }
-      
-      // Smooth edges to prevent artifacts
-      const smoothingWindow = 64;
-      for (let i = smoothingWindow; i < length - smoothingWindow; i++) {
-        let sum = 0;
-        for (let j = -smoothingWindow; j <= smoothingWindow; j++) {
-          sum += processed[i + j];
-        }
-        processed[i] = sum / (smoothingWindow * 2 + 1) * 0.5 + processed[i] * 0.5;
-      }
-      
-      processedChannels.push(processed);
+    if (intensity === 0) {
+      // Bypass processing
+      source.connect(offlineContext.destination);
+      source.start();
+      return await offlineContext.startRendering();
     }
     
-    // Create new buffer with processed data
-    const outputBuffer = offlineContext.createBuffer(numChannels, length, sampleRate);
-    processedChannels.forEach((chData, idx) => {
-      outputBuffer.getChannelData(idx).set(chData);
-    });
+    // Create processing chain based on intensity
+    let currentNode: AudioNode = source;
     
-    return outputBuffer;
+    // 1. High-pass filter - removes low-frequency rumble and hum
+    if (intensity > 0.1) {
+      const hpFilter = offlineContext.createBiquadFilter();
+      hpFilter.type = 'highpass';
+      // Increase cutoff frequency with intensity (50Hz to 150Hz)
+      hpFilter.frequency.value = 50 + (intensity * 100);
+      hpFilter.Q.value = 0.7;
+      currentNode.connect(hpFilter);
+      currentNode = hpFilter;
+    }
+    
+    // 2. Notch filters for common electrical noise (50/60Hz hum)
+    if (intensity > 0.3) {
+      const notch60 = offlineContext.createBiquadFilter();
+      notch60.type = 'notch';
+      notch60.frequency.value = 60;
+      notch60.Q.value = 10;
+      currentNode.connect(notch60);
+      currentNode = notch60;
+      
+      const notch120 = offlineContext.createBiquadFilter();
+      notch120.type = 'notch';
+      notch120.frequency.value = 120;
+      notch120.Q.value = 10;
+      currentNode.connect(notch120);
+      currentNode = notch120;
+    }
+    
+    // 3. Noise gate simulation using dynamics compressor
+    if (intensity > 0.2) {
+      const compressor = offlineContext.createDynamicsCompressor();
+      // Aggressive settings to act as noise gate
+      compressor.threshold.value = -50 + (intensity * 30); // -50dB to -20dB
+      compressor.knee.value = 0; // Hard knee
+      compressor.ratio.value = 12 + (intensity * 8); // 12:1 to 20:1
+      compressor.attack.value = 0.001; // Fast attack
+      compressor.release.value = 0.05; // Quick release
+      currentNode.connect(compressor);
+      currentNode = compressor;
+    }
+    
+    // 4. Multi-band EQ for noise reduction
+    if (intensity > 0.4) {
+      // Reduce low-mids (mud region)
+      const lowMid = offlineContext.createBiquadFilter();
+      lowMid.type = 'peaking';
+      lowMid.frequency.value = 250;
+      lowMid.Q.value = 1.0;
+      lowMid.gain.value = -3 - (intensity * 6); // -3dB to -9dB
+      currentNode.connect(lowMid);
+      currentNode = lowMid;
+      
+      // Boost presence for clarity
+      const presence = offlineContext.createBiquadFilter();
+      presence.type = 'peaking';
+      presence.frequency.value = 3000;
+      presence.Q.value = 1.5;
+      presence.gain.value = 2 + (intensity * 3); // +2dB to +5dB
+      currentNode.connect(presence);
+      currentNode = presence;
+    }
+    
+    // 5. De-esser (reduce harsh highs)
+    if (intensity > 0.6) {
+      const deEss = offlineContext.createBiquadFilter();
+      deEss.type = 'highshelf';
+      deEss.frequency.value = 8000;
+      deEss.gain.value = -2 - (intensity * 4); // -2dB to -6dB
+      currentNode.connect(deEss);
+      currentNode = deEss;
+    }
+    
+    // 6. Final limiter to prevent clipping
+    if (intensity > 0.5) {
+      const limiter = offlineContext.createDynamicsCompressor();
+      limiter.threshold.value = -6;
+      limiter.knee.value = 0;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.001;
+      limiter.release.value = 0.1;
+      currentNode.connect(limiter);
+      currentNode = limiter;
+    }
+    
+    // 7. Output gain compensation
+    const outputGain = offlineContext.createGain();
+    // Compensate for volume loss from filtering
+    outputGain.gain.value = 1.0 + (intensity * 0.3);
+    currentNode.connect(outputGain);
+    outputGain.connect(offlineContext.destination);
+    
+    source.start();
+    return await offlineContext.startRendering();
   }, [masterBuffer, cleanValue]);
 
   const handleListenToggle = async () => {
