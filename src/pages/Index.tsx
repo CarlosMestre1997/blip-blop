@@ -77,6 +77,13 @@ const Index = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   
+  // Loop recording state
+  const [isLoopRecording, setIsLoopRecording] = useState(false);
+  const [isLoopPlaying, setIsLoopPlaying] = useState(false);
+  const [recordedLoop, setRecordedLoop] = useState<Array<{ sliceNum: number; time: number }>>([]);
+  const loopRecordingStartTimeRef = useRef<number>(0);
+  const loopPlaybackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   const audioSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
@@ -223,7 +230,7 @@ const Index = () => {
   }, []);
 
   // Play slice
-  const playSlice = useCallback((sliceNum: number) => {
+  const playSlice = useCallback((sliceNum: number, skipLoopRecording = false) => {
     if (!masterBuffer || !slices.has(sliceNum)) return;
 
     // Stop any currently playing slice to prevent overlap
@@ -281,6 +288,12 @@ const Index = () => {
     setCurrentlyPlayingSlice(sliceNum);
     setLastPlayedSlice(sliceNum);
 
+    // Record to loop if loop recording is active
+    if (!skipLoopRecording && isLoopRecording) {
+      const currentTime = Date.now() - loopRecordingStartTimeRef.current;
+      setRecordedLoop(prev => [...prev, { sliceNum, time: currentTime }]);
+    }
+
     // Clean up after playback
     source.onended = () => {
       activeSliceSourcesRef.current = activeSliceSourcesRef.current.filter(s => s !== source);
@@ -289,7 +302,7 @@ const Index = () => {
         setCurrentlyPlayingSlice(null);
       }
     };
-  }, [masterBuffer, slices, ctx, masterGainNode, stopCurrentSlice]);
+  }, [masterBuffer, slices, ctx, masterGainNode, stopCurrentSlice, isLoopRecording]);
 
   // Play drum pad by track index
   const playDrumPad = useCallback((trackIndex: number) => {
@@ -317,6 +330,55 @@ const Index = () => {
         } else if (lastPlayedSliceRef.current !== null) {
           // If nothing playing, replay the last slice
           playSlice(lastPlayedSliceRef.current);
+        }
+        return;
+      }
+      
+      // Handle L key for loop recording/playback
+      if (key === 'L') {
+        e.preventDefault();
+        if (!isLoopRecording && !isLoopPlaying) {
+          // Start recording
+          setIsLoopRecording(true);
+          setRecordedLoop([]);
+          loopRecordingStartTimeRef.current = Date.now();
+          toast.success('Loop recording started - play your slices!');
+        } else if (isLoopRecording) {
+          // Stop recording and start looping
+          if (recordedLoop.length === 0) {
+            toast.error('No slices recorded in loop');
+            setIsLoopRecording(false);
+            return;
+          }
+          setIsLoopRecording(false);
+          setIsLoopPlaying(true);
+          
+          // Calculate total loop duration
+          const totalDuration = recordedLoop[recordedLoop.length - 1].time + 500; // Add 500ms buffer
+          
+          // Start playing the loop
+          const playLoop = () => {
+            recordedLoop.forEach((event) => {
+              setTimeout(() => {
+                playSlice(event.sliceNum, true); // Skip loop recording to avoid nested loops
+              }, event.time);
+            });
+            
+            // Schedule next loop iteration
+            loopPlaybackTimeoutRef.current = setTimeout(playLoop, totalDuration);
+          };
+          
+          playLoop();
+          toast.success(`Loop playing (${recordedLoop.length} slices)`);
+        } else if (isLoopPlaying) {
+          // Stop loop playback
+          if (loopPlaybackTimeoutRef.current) {
+            clearTimeout(loopPlaybackTimeoutRef.current);
+            loopPlaybackTimeoutRef.current = null;
+          }
+          setIsLoopPlaying(false);
+          setRecordedLoop([]);
+          toast.success('Loop stopped');
         }
         return;
       }
@@ -763,7 +825,11 @@ const Index = () => {
         </div>
 
         {/* Keyboard triggers */}
-        <KeyboardTriggers activeKeys={activeKeys} />
+        <KeyboardTriggers 
+          activeKeys={activeKeys} 
+          isLoopRecording={isLoopRecording}
+          isLoopPlaying={isLoopPlaying}
+        />
 
         {/* Recording controls */}
         <RecordingControls
