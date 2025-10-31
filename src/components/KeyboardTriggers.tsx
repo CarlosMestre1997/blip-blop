@@ -8,7 +8,7 @@ const KeyboardKey = ({ keyLabel, isActive }: { keyLabel: string; isActive: boole
   <div className="relative inline-flex flex-col items-center">
     <div
       className={`
-        relative w-12 h-12 rounded-lg
+        relative w-10 h-10 rounded-lg
         border-2 transition-all duration-150
         ${isActive 
           ? 'border-primary bg-primary/20 shadow-lg shadow-primary/50 translate-y-0.5' 
@@ -22,7 +22,7 @@ const KeyboardKey = ({ keyLabel, isActive }: { keyLabel: string; isActive: boole
       }}
     >
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className={`font-bold text-lg ${isActive ? 'text-primary' : 'text-foreground'}`}>
+        <span className={`font-bold text-sm ${isActive ? 'text-primary' : 'text-foreground'}`}>
           {keyLabel}
         </span>
       </div>
@@ -37,11 +37,10 @@ const KeyboardTriggers = ({ activeKeys, isLoopRecording, isLoopPlaying }: Keyboa
   const drumKeys = ['D', 'F', 'G', 'H', 'J', 'K'];
 
   return (
-    <div className="space-y-6 p-6 bg-card border-2 border-border rounded-lg">
+    <div className="space-y-3 p-4">
       <div>
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-sm font-semibold text-muted-foreground">Slices:</span>
-          <div className="flex-1 h-px bg-border" />
+        <div className="flex items-center gap-3 mb-2">
+          <span className="text-xs font-medium text-muted-foreground">Slices</span>
         </div>
         <div className="flex gap-2 justify-center">
           {sliceKeys.map((key) => (
@@ -51,9 +50,8 @@ const KeyboardTriggers = ({ activeKeys, isLoopRecording, isLoopPlaying }: Keyboa
       </div>
 
       <div>
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-sm font-semibold text-muted-foreground">Drums:</span>
-          <div className="flex-1 h-px bg-border" />
+        <div className="flex items-center gap-3 mb-2">
+          <span className="text-xs font-medium text-muted-foreground">Drums</span>
         </div>
         <div className="flex gap-2 justify-center">
           {drumKeys.map((key) => (
@@ -63,20 +61,19 @@ const KeyboardTriggers = ({ activeKeys, isLoopRecording, isLoopPlaying }: Keyboa
       </div>
 
       <div>
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-sm font-semibold text-muted-foreground">Loop Control:</span>
-          <div className="flex-1 h-px bg-border" />
+        <div className="flex items-center justify-center gap-3 mb-2">
+          <span className="text-xs font-medium text-muted-foreground">Loop Control</span>
           {isLoopRecording && (
-            <span className="text-xs font-bold text-red-500 animate-pulse">● RECORDING</span>
+            <span className="text-xs font-bold text-red-500 animate-pulse">● REC</span>
           )}
           {isLoopPlaying && (
-            <span className="text-xs font-bold text-primary">▶ LOOPING</span>
+            <span className="text-xs font-bold text-primary">▶ LOOP</span>
           )}
         </div>
-        <div className="flex gap-2 justify-center">
+        <div className="flex gap-2 justify-center items-center">
           <KeyboardKey keyLabel="L" isActive={activeKeys.has('L')} />
-          <span className="text-xs text-muted-foreground self-center ml-2">
-            Press L to {!isLoopRecording && !isLoopPlaying ? 'start recording' : isLoopRecording ? 'loop sequence' : 'stop loop'}
+          <span className="text-[10px] text-muted-foreground ml-1">
+            {!isLoopRecording && !isLoopPlaying ? 'start recording' : isLoopRecording ? 'loop sequence' : 'stop loop'}
           </span>
         </div>
       </div>
