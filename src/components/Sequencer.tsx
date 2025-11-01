@@ -125,21 +125,27 @@ const Sequencer = ({ bpm, isPlaying, onTriggerSample, sampleNames, metronome, on
                 <div className="flex gap-1">
                   {Array(STEPS)
                     .fill(0)
-                    .map((_, stepIndex) => (
-                      <button
-                        key={stepIndex}
-                        onClick={() => toggleStep(trackIndex, stepIndex)}
-                        className={`w-6 h-6 border-2 rounded transition-colors ${
-                          pattern[trackIndex][stepIndex]
-                            ? "bg-ring border-ring"
-                            : "border-border bg-background"
-                        } ${
-                          currentStep === stepIndex && isPlaying
-                            ? "ring-2 ring-accent"
-                            : ""
-                        }`}
-                      />
-                    ))}
+                    .map((_, stepIndex) => {
+                      // Highlight steps 1, 5, 9, 13 (indices 0, 4, 8, 12)
+                      const isDownbeat = stepIndex % 4 === 0;
+                      return (
+                        <button
+                          key={stepIndex}
+                          onClick={() => toggleStep(trackIndex, stepIndex)}
+                          className={`w-6 h-6 border-2 rounded transition-colors ${
+                            pattern[trackIndex][stepIndex]
+                              ? "bg-ring border-ring"
+                              : isDownbeat
+                              ? "border-primary/60 bg-primary/10"
+                              : "border-border bg-background"
+                          } ${
+                            currentStep === stepIndex && isPlaying
+                              ? "ring-2 ring-accent shadow-lg"
+                              : ""
+                          }`}
+                        />
+                      );
+                    })}
                 </div>
               </div>
             ))}

@@ -55,15 +55,19 @@ const WaveformDisplay = ({ audioFile, onWaveSurferReady }: WaveformDisplayProps)
       onWaveSurferReady(wavesurfer, regions);
     });
 
-    // Zoom with Alt + mouse wheel
-    containerRef.current.addEventListener('wheel', (e) => {
+    // Improved zoom with Alt + mouse wheel - exponential scaling for smoother experience
+    let currentZoom = 50; // Start at reasonable zoom level
+    const container = containerRef.current;
+    const handleWheel = (e: WheelEvent) => {
       if (e.altKey) {
         e.preventDefault();
-        const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        const currentZoom = wavesurfer.options.minPxPerSec || 1;
-        wavesurfer.zoom(Math.max(1, currentZoom + delta * 10));
+        // Use exponential scaling for smoother zoom
+        const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+        currentZoom = Math.max(10, Math.min(1000, currentZoom * zoomFactor));
+        wavesurfer.zoom(currentZoom);
       }
-    });
+    };
+    container.addEventListener('wheel', handleWheel, { passive: false });
 
     return () => {
       wavesurfer.destroy();

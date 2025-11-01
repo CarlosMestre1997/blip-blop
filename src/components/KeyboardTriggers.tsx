@@ -2,27 +2,30 @@ interface KeyboardTriggersProps {
   activeKeys: Set<string>;
   isLoopRecording?: boolean;
   isLoopPlaying?: boolean;
+  currentlyPlayingSlice?: number | null;
+  currentlyPlayingDrum?: number | null;
 }
 
-const KeyboardKey = ({ keyLabel, isActive }: { keyLabel: string; isActive: boolean }) => (
+const KeyboardKey = ({ keyLabel, isActive, isPlaying }: { keyLabel: string; isActive: boolean; isPlaying?: boolean }) => (
   <div className="relative inline-flex flex-col items-center">
     <div
       className={`
         relative w-10 h-10 rounded-lg
         border-2 transition-all duration-150
-        ${isActive 
+        ${isActive || isPlaying
           ? 'border-primary bg-primary/20 shadow-lg shadow-primary/50 translate-y-0.5' 
           : 'border-border bg-card shadow-md'
         }
+        ${isPlaying ? 'animate-pulse' : ''}
       `}
       style={{
-        boxShadow: isActive 
+        boxShadow: (isActive || isPlaying)
           ? '0 2px 0 hsl(var(--primary)), inset 0 1px 2px rgba(0,0,0,0.3)'
           : '0 4px 0 hsl(var(--border)), inset 0 1px 0 rgba(255,255,255,0.1)'
       }}
     >
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className={`font-bold text-sm ${isActive ? 'text-primary' : 'text-foreground'}`}>
+        <span className={`font-bold text-sm ${(isActive || isPlaying) ? 'text-primary' : 'text-foreground'}`}>
           {keyLabel}
         </span>
       </div>
@@ -32,23 +35,49 @@ const KeyboardKey = ({ keyLabel, isActive }: { keyLabel: string; isActive: boole
   </div>
 );
 
-const KeyboardTriggers = ({ activeKeys, isLoopRecording, isLoopPlaying }: KeyboardTriggersProps) => {
+const KeyboardTriggers = ({ activeKeys, isLoopRecording, isLoopPlaying, currentlyPlayingSlice, currentlyPlayingDrum }: KeyboardTriggersProps) => {
   const sliceKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-  const drumKeys = ['D', 'F', 'G', 'H', 'J', 'K'];
+  const drumKeys = ['D', 'F', 'G'];
+  const drumSequenceKeys = ['H', 'J', 'K'];
 
   return (
     <div className="space-y-3 p-4">
       <div className="flex gap-2 items-center justify-center">
         <span className="text-xs font-medium text-muted-foreground mr-1">Slices</span>
-        {sliceKeys.map((key) => (
-          <KeyboardKey key={key} keyLabel={key} isActive={activeKeys.has(key)} />
-        ))}
+        {sliceKeys.map((key) => {
+          const sliceNum = parseInt(key);
+          const isPlaying = currentlyPlayingSlice === sliceNum;
+          return (
+            <KeyboardKey 
+              key={key} 
+              keyLabel={key} 
+              isActive={activeKeys.has(key)} 
+              isPlaying={isPlaying}
+            />
+          );
+        })}
       </div>
 
       <div className="flex gap-2 items-center justify-center">
         <span className="text-xs font-medium text-muted-foreground mr-1">Drums</span>
-        {drumKeys.map((key) => (
-          <KeyboardKey key={key} keyLabel={key} isActive={activeKeys.has(key)} />
+        {drumKeys.map((key, idx) => {
+          const isPlaying = currentlyPlayingDrum === idx;
+          return (
+            <KeyboardKey 
+              key={key} 
+              keyLabel={key} 
+              isActive={activeKeys.has(key)} 
+              isPlaying={isPlaying}
+            />
+          );
+        })}
+        <span className="text-xs font-medium text-muted-foreground mx-2">|</span>
+        {drumSequenceKeys.map((key) => (
+          <KeyboardKey 
+            key={key} 
+            keyLabel={key} 
+            isActive={activeKeys.has(key)} 
+          />
         ))}
       </div>
 

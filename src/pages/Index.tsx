@@ -8,6 +8,7 @@ import SliceControls, { SliceSettings } from "@/components/SliceControls";
 import Metronome from "@/components/Metronome";
 import Sequencer from "@/components/Sequencer";
 import SmartCleanKnob from "@/components/SmartCleanKnob";
+import DrumPads from "@/components/DrumPads";
 import KeyboardTriggers from "@/components/KeyboardTriggers";
 import RecordingControls from "@/components/RecordingControls";
 import { Button } from "@/components/ui/button";
@@ -40,8 +41,8 @@ const Index = () => {
   // Slice state
   const [slices, setSlices] = useState<Map<number, { region: WaveSurferRegion; settings: SliceSettings }>>(new Map());
   const [activeSlice, setActiveSlice] = useState<number | null>(null);
-  const [nextSliceNumber, setNextSliceNumber] = useState(1);
   const [currentlyPlayingSlice, setCurrentlyPlayingSlice] = useState<number | null>(null);
+  const [currentlyPlayingDrum, setCurrentlyPlayingDrum] = useState<number | null>(null);
   const [lastPlayedSlice, setLastPlayedSlice] = useState<number | null>(null);
   const activeSliceSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const currentlyPlayingSliceRef = useRef<number | null>(null);
@@ -140,15 +141,23 @@ const Index = () => {
     let startPos: number | null = null;
 
     regions.on('region-created', (region: WaveSurferRegion) => {
-      // Use a closure to capture the current nextSliceNumber
-      setNextSliceNumber(currentNum => {
-        if (currentNum > 9) {
+      // Find the lowest available slice number (1-9)
+      setSlices(prev => {
+        // Find first available slot
+        let sliceNum = 1;
+        for (let i = 1; i <= 9; i++) {
+          if (!prev.has(i)) {
+            sliceNum = i;
+            break;
+          }
+        }
+        
+        if (prev.size >= 9) {
           toast.error("Maximum 9 slices allowed");
           region.remove();
-          return currentNum;
+          return prev;
         }
 
-        const sliceNum = currentNum;
         region.setOptions({
           content: sliceNum.toString(),
           color: 'rgba(135, 206, 235, 0.3)',
@@ -164,10 +173,9 @@ const Index = () => {
           mode: 'classic',
         };
 
-        setSlices(prev => new Map(prev).set(sliceNum, { region, settings }));
+        const newSlices = new Map(prev).set(sliceNum, { region, settings });
         toast.success(`Slice ${sliceNum} created`);
-        
-        return currentNum + 1;
+        return newSlices;
       });
     });
 
@@ -305,7 +313,7 @@ const Index = () => {
     };
   }, [masterBuffer, slices, ctx, masterGainNode, stopCurrentSlice, isLoopRecording]);
 
-  // Play drum pad by track index
+  // Play drum pad by track index with visual feedback
   const playDrumPad = useCallback((trackIndex: number) => {
     const pad = drumPadsRef.current[trackIndex];
     if (!pad?.audioBuffer) return;
@@ -315,6 +323,10 @@ const Index = () => {
     source.connect(masterGainNode.gainNode);
     source.start();
     audioSourcesRef.current.push(source);
+    
+    // Visual feedback
+    setCurrentlyPlayingDrum(trackIndex);
+    setTimeout(() => setCurrentlyPlayingDrum(null), 150); // Flash for 150ms
   }, [ctx, masterGainNode]);
 
   // Keyboard handling
@@ -322,16 +334,31 @@ const Index = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toUpperCase();
       
-      // Handle spacebar to stop all audio and replay last sample
+      // Handle spacebar as GLOBAL STOP for everything
       if (e.code === 'Space') {
         e.preventDefault();
-        if (currentlyPlayingSliceRef.current !== null || audioSourcesRef.current.length > 0) {
-          // If anything is playing, stop everything
-          stopAllAudio();
-        } else if (lastPlayedSliceRef.current !== null) {
-          // If nothing playing, replay the last slice
-          playSlice(lastPlayedSliceRef.current);
+        // Stop all audio
+        stopAllAudio();
+        // Stop sequencer
+        setIsSequencerPlaying(false);
+        // Stop metronome
+        setIsMetronomePlaying(false);
+        // Stop any sequence playback
+        if (sequencePlaybackRef.current) {
+          clearTimeout(sequencePlaybackRef.current);
+          sequencePlaybackRef.current = null;
         }
+        activeSequenceKeyRef.current = null;
+        setActiveSequenceKey(null);
+        // Stop loop playback
+        if (isLoopPlaying) {
+          if (loopPlaybackTimeoutRef.current) {
+            clearTimeout(loopPlaybackTimeoutRef.current);
+            loopPlaybackTimeoutRef.current = null;
+          }
+          setIsLoopPlaying(false);
+        }
+        toast.success('Everything stopped');
         return;
       }
       
@@ -828,7 +855,7 @@ const Index = () => {
           </div>
 
           {/* Sequencer with embedded Metronome */}
-          <div>
+          <div className="space-y-4">
             <Sequencer
               bpm={bpm}
               isPlaying={isSequencerPlaying}
@@ -846,6 +873,11 @@ const Index = () => {
               onMapKey={handleMapSequencerKey}
               onClearMap={handleClearMap}
               sequenceKeysInfo={{ mapped: mappedSequences.current, active: activeSequenceKey }}
+            />
+            
+            <DrumPads 
+              drumPads={drumPads}
+              onSampleUpload={handleDrumSampleUpload}
             />
           </div>
 
@@ -867,6 +899,8 @@ const Index = () => {
           activeKeys={activeKeys} 
           isLoopRecording={isLoopRecording}
           isLoopPlaying={isLoopPlaying}
+          currentlyPlayingSlice={currentlyPlayingSlice}
+          currentlyPlayingDrum={currentlyPlayingDrum}
         />
 
         {/* Recording controls */}
