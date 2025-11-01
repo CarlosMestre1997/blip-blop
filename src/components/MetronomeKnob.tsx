@@ -15,20 +15,40 @@ const MetronomeKnob = ({ value, onChange, min = 40, max = 240, step = 1, size = 
   const [isDragging, setIsDragging] = useState(false);
   const knobRef = useRef<HTMLDivElement>(null);
 
+  const lastTouchYRef = useRef<number>(0);
+
   useEffect(() => {
     if (!isDragging) return;
+    
     const handleMouseMove = (e: MouseEvent) => {
       const deltaY = -e.movementY;
-      let newValue = value + deltaY * ((max - min) / 150); // sensitivity-150px = full sweep
+      let newValue = value + deltaY * ((max - min) / 150);
       newValue = Math.round(clamp(newValue, min, max) / step) * step;
       onChange(newValue);
     };
-    const handleMouseUp = () => setIsDragging(false);
+    
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const deltaY = lastTouchYRef.current - touch.clientY;
+      lastTouchYRef.current = touch.clientY;
+      let newValue = value + deltaY * ((max - min) / 150);
+      newValue = Math.round(clamp(newValue, min, max) / step) * step;
+      onChange(newValue);
+    };
+    
+    const handleEnd = () => setIsDragging(false);
+    
     document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mouseup', handleEnd);
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleEnd);
+    
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mouseup', handleEnd);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleEnd);
     };
   }, [isDragging, value, min, max, step, onChange]);
 
@@ -40,9 +60,13 @@ const MetronomeKnob = ({ value, onChange, min = 40, max = 240, step = 1, size = 
     <div className="flex flex-col items-center gap-1 select-none">
       <div
         ref={knobRef}
-        className="relative rounded-full border border-border bg-card"
+        className="relative rounded-full border border-border bg-card cursor-pointer"
         style={knobStyle}
         onMouseDown={() => setIsDragging(true)}
+        onTouchStart={(e) => {
+          lastTouchYRef.current = e.touches[0].clientY;
+          setIsDragging(true);
+        }}
         title="Set BPM"
       >
         <svg width={size} height={size} className="block">

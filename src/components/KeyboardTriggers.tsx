@@ -4,17 +4,32 @@ interface KeyboardTriggersProps {
   isLoopPlaying?: boolean;
   currentlyPlayingSlice?: number | null;
   currentlyPlayingDrum?: number | null;
+  onSlicePlay?: (sliceNum: number) => void;
+  onDrumPlay?: (drumIndex: number) => void;
+  onSequenceToggle?: (key: string) => void;
+  onLoopToggle?: () => void;
+  onGlobalStop?: () => void;
 }
 
-const KeyboardKey = ({ keyLabel, isActive, isPlaying }: { keyLabel: string; isActive: boolean; isPlaying?: boolean }) => (
+const KeyboardKey = ({ 
+  keyLabel, 
+  isActive, 
+  isPlaying, 
+  onTouchStart 
+}: { 
+  keyLabel: string; 
+  isActive: boolean; 
+  isPlaying?: boolean;
+  onTouchStart?: () => void;
+}) => (
   <div className="relative inline-flex flex-col items-center">
     <div
       className={`
         relative w-10 h-10 rounded-lg
-        border-2 transition-all duration-150
+        border-2 transition-all duration-150 cursor-pointer
         ${isActive || isPlaying
           ? 'border-primary bg-primary/20 shadow-lg shadow-primary/50 translate-y-0.5' 
-          : 'border-border bg-card shadow-md'
+          : 'border-border bg-card shadow-md active:translate-y-0.5'
         }
         ${isPlaying ? 'animate-pulse' : ''}
       `}
@@ -23,6 +38,11 @@ const KeyboardKey = ({ keyLabel, isActive, isPlaying }: { keyLabel: string; isAc
           ? '0 2px 0 hsl(var(--primary)), inset 0 1px 2px rgba(0,0,0,0.3)'
           : '0 4px 0 hsl(var(--border)), inset 0 1px 0 rgba(255,255,255,0.1)'
       }}
+      onTouchStart={(e) => {
+        e.preventDefault();
+        onTouchStart?.();
+      }}
+      onClick={onTouchStart}
     >
       <div className="absolute inset-0 flex items-center justify-center">
         <span className={`font-bold text-sm ${(isActive || isPlaying) ? 'text-primary' : 'text-foreground'}`}>
@@ -35,7 +55,18 @@ const KeyboardKey = ({ keyLabel, isActive, isPlaying }: { keyLabel: string; isAc
   </div>
 );
 
-const KeyboardTriggers = ({ activeKeys, isLoopRecording, isLoopPlaying, currentlyPlayingSlice, currentlyPlayingDrum }: KeyboardTriggersProps) => {
+const KeyboardTriggers = ({ 
+  activeKeys, 
+  isLoopRecording, 
+  isLoopPlaying, 
+  currentlyPlayingSlice, 
+  currentlyPlayingDrum,
+  onSlicePlay,
+  onDrumPlay,
+  onSequenceToggle,
+  onLoopToggle,
+  onGlobalStop
+}: KeyboardTriggersProps) => {
   const sliceKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
   const drumKeys = ['D', 'F', 'G'];
   const drumSequenceKeys = ['H', 'J', 'K'];
@@ -53,6 +84,7 @@ const KeyboardTriggers = ({ activeKeys, isLoopRecording, isLoopPlaying, currentl
               keyLabel={key} 
               isActive={activeKeys.has(key)} 
               isPlaying={isPlaying}
+              onTouchStart={() => onSlicePlay?.(sliceNum)}
             />
           );
         })}
@@ -68,6 +100,7 @@ const KeyboardTriggers = ({ activeKeys, isLoopRecording, isLoopPlaying, currentl
               keyLabel={key} 
               isActive={activeKeys.has(key)} 
               isPlaying={isPlaying}
+              onTouchStart={() => onDrumPlay?.(idx)}
             />
           );
         })}
@@ -76,7 +109,8 @@ const KeyboardTriggers = ({ activeKeys, isLoopRecording, isLoopPlaying, currentl
           <KeyboardKey 
             key={key} 
             keyLabel={key} 
-            isActive={activeKeys.has(key)} 
+            isActive={activeKeys.has(key)}
+            onTouchStart={() => onSequenceToggle?.(key)}
           />
         ))}
       </div>
@@ -89,9 +123,24 @@ const KeyboardTriggers = ({ activeKeys, isLoopRecording, isLoopPlaying, currentl
         {isLoopPlaying && (
           <span className="text-xs font-bold text-primary">▶ LOOP</span>
         )}
-        <KeyboardKey keyLabel="L" isActive={activeKeys.has('L')} />
+        <KeyboardKey 
+          keyLabel="L" 
+          isActive={activeKeys.has('L')}
+          onTouchStart={onLoopToggle}
+        />
         <span className="text-[10px] text-muted-foreground ml-1">
           {!isLoopRecording && !isLoopPlaying ? 'start recording' : isLoopRecording ? 'loop sequence' : 'stop loop'}
+        </span>
+      </div>
+
+      <div className="flex gap-2 items-center justify-center mt-4">
+        <KeyboardKey 
+          keyLabel="SPACE" 
+          isActive={activeKeys.has(' ')}
+          onTouchStart={onGlobalStop}
+        />
+        <span className="text-[10px] text-muted-foreground ml-1">
+          global stop
         </span>
       </div>
     </div>

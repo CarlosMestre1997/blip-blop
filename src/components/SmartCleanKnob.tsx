@@ -22,6 +22,8 @@ const SmartCleanKnob = ({ value, onChange, onListen, isPlaying, onDownload, isPr
   const [isExpanded, setIsExpanded] = useState(false);
   const knobRef = useRef<HTMLDivElement>(null);
 
+  const lastTouchYRef = useRef<number>(0);
+
   useEffect(() => {
     if (!isDragging) return;
 
@@ -31,16 +33,29 @@ const SmartCleanKnob = ({ value, onChange, onListen, isPlaying, onDownload, isPr
       onChange(newValue);
     };
 
-    const handleMouseUp = () => {
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const deltaY = lastTouchYRef.current - touch.clientY;
+      lastTouchYRef.current = touch.clientY;
+      const newValue = Math.max(0, Math.min(100, value + deltaY * 0.5));
+      onChange(newValue);
+    };
+
+    const handleEnd = () => {
       setIsDragging(false);
     };
 
     document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mouseup', handleEnd);
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleEnd);
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mouseup', handleEnd);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleEnd);
     };
   }, [isDragging, value, onChange]);
 
@@ -65,6 +80,10 @@ const SmartCleanKnob = ({ value, onChange, onListen, isPlaying, onDownload, isPr
               ref={knobRef}
               className="relative w-24 h-24 cursor-pointer select-none"
               onMouseDown={() => setIsDragging(true)}
+              onTouchStart={(e) => {
+                lastTouchYRef.current = e.touches[0].clientY;
+                setIsDragging(true);
+              }}
             >
               <div className="absolute inset-0 rounded-full border-4 border-border bg-background"></div>
               <div 

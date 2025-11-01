@@ -901,6 +901,84 @@ const Index = () => {
           isLoopPlaying={isLoopPlaying}
           currentlyPlayingSlice={currentlyPlayingSlice}
           currentlyPlayingDrum={currentlyPlayingDrum}
+          onSlicePlay={playSlice}
+          onDrumPlay={playDrumPad}
+          onSequenceToggle={(key) => {
+            // Handle sequence toggle (H/J/K)
+            if (activeSequenceKeyRef.current === key) {
+              if (sequencePlaybackRef.current) clearTimeout(sequencePlaybackRef.current);
+              sequencePlaybackRef.current = null;
+              activeSequenceKeyRef.current = null;
+              setActiveSequenceKey(null);
+              return;
+            }
+            const seq = mappedSequences.current[key];
+            if (seq) {
+              let step = 0;
+              const steps = seq[0].length;
+              const bpmLocal = bpm;
+              const stepDuration = (60 / bpmLocal / 4) * 1000;
+              activeSequenceKeyRef.current = key;
+              setActiveSequenceKey(key);
+              function playStep() {
+                for (let i = 0; i < 3; i++) {
+                  if (seq[i][step] && drumPadsRef.current[i]?.audioBuffer) {
+                    const source = ctx.createBufferSource();
+                    source.buffer = drumPadsRef.current[i].audioBuffer!;
+                    source.connect(masterGainNode.gainNode);
+                    source.start();
+                  }
+                }
+                step = (step + 1) % steps;
+                if (activeSequenceKeyRef.current === key) {
+                  sequencePlaybackRef.current = setTimeout(playStep, stepDuration);
+                }
+              }
+              if (sequencePlaybackRef.current) clearTimeout(sequencePlaybackRef.current);
+              playStep();
+            }
+          }}
+          onLoopToggle={() => {
+            // Handle L key - loop recording/playback toggle
+            if (!isLoopRecording && !isLoopPlaying) {
+              setIsLoopRecording(true);
+              recordedLoopRef.current = [];
+              loopRecordingStartTimeRef.current = Date.now();
+              toast.success('Loop recording started');
+            } else if (isLoopRecording) {
+              if (recordedLoopRef.current.length === 0) {
+                toast.error('No slices recorded');
+                setIsLoopRecording(false);
+                return;
+              }
+              setIsLoopRecording(false);
+              setIsLoopPlaying(true);
+              
+              const loop = recordedLoopRef.current;
+              const totalDuration = loop[loop.length - 1].time + 500;
+              
+              const playLoop = () => {
+                loop.forEach((event) => {
+                  setTimeout(() => {
+                    playSlice(event.sliceNum, true);
+                  }, event.time);
+                });
+                loopPlaybackTimeoutRef.current = setTimeout(playLoop, totalDuration);
+              };
+              
+              playLoop();
+              toast.success(`Loop playing (${loop.length} slices)`);
+            } else if (isLoopPlaying) {
+              if (loopPlaybackTimeoutRef.current) {
+                clearTimeout(loopPlaybackTimeoutRef.current);
+                loopPlaybackTimeoutRef.current = null;
+              }
+              setIsLoopPlaying(false);
+              recordedLoopRef.current = [];
+              toast.success('Loop stopped');
+            }
+          }}
+          onGlobalStop={stopAllAudio}
         />
 
         {/* Recording controls */}
