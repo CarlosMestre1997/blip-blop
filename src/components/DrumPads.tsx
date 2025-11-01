@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, Upload } from "lucide-react";
+import { ChevronDown, ChevronUp, Upload, Sliders } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
 
 interface DrumPad {
   sampleName: string;
@@ -14,6 +15,9 @@ interface DrumPadsProps {
 
 const DrumPads = ({ drumPads, onSampleUpload }: DrumPadsProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [expandedEQ, setExpandedEQ] = useState<number | null>(null);
+  
+  const trackLabels = ["D", "F", "G"];
 
   const handleFileChange = (trackIndex: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -39,27 +43,37 @@ const DrumPads = ({ drumPads, onSampleUpload }: DrumPadsProps) => {
           </div>
           
           {drumPads.map((pad, index) => (
-            <div key={index} className="space-y-2">
+            <div key={index} className="space-y-2 pb-3 border-b border-border last:border-0 last:pb-0">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium">Track {index + 1}</span>
+                <span className="text-xs font-medium">{trackLabels[index]}</span>
                 <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
                   {pad.sampleName}
                 </span>
               </div>
               
-              <label htmlFor={`drum-upload-${index}`}>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="w-full"
-                  asChild
+              <div className="flex gap-2">
+                <label htmlFor={`drum-upload-${index}`} className="flex-1">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full"
+                    asChild
+                  >
+                    <span className="cursor-pointer flex items-center justify-center gap-2">
+                      <Upload className="w-3 h-3" />
+                      Upload
+                    </span>
+                  </Button>
+                </label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setExpandedEQ(expandedEQ === index ? null : index)}
                 >
-                  <span className="cursor-pointer flex items-center justify-center gap-2">
-                    <Upload className="w-3 h-3" />
-                    Upload Sample
-                  </span>
+                  <Sliders className="w-3 h-3" />
                 </Button>
-              </label>
+              </div>
+              
               <input
                 id={`drum-upload-${index}`}
                 type="file"
@@ -67,6 +81,41 @@ const DrumPads = ({ drumPads, onSampleUpload }: DrumPadsProps) => {
                 onChange={(e) => handleFileChange(index, e)}
                 className="hidden"
               />
+              
+              {expandedEQ === index && (
+                <div className="space-y-3 pt-2 bg-accent/30 p-3 rounded">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-muted-foreground">Low</label>
+                    <Slider
+                      defaultValue={[0]}
+                      min={-12}
+                      max={12}
+                      step={0.5}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-muted-foreground">Mid</label>
+                    <Slider
+                      defaultValue={[0]}
+                      min={-12}
+                      max={12}
+                      step={0.5}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-muted-foreground">High</label>
+                    <Slider
+                      defaultValue={[0]}
+                      min={-12}
+                      max={12}
+                      step={0.5}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
