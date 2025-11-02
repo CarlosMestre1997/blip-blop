@@ -21,39 +21,55 @@ const KeyboardKey = ({
   isActive: boolean; 
   isPlaying?: boolean;
   onTouchStart?: () => void;
-}) => (
-  <div className="relative inline-flex flex-col items-center">
-    <div
-      className={`
-        relative w-10 h-10 rounded-lg
-        border-2 transition-all duration-150 cursor-pointer
-        ${isActive || isPlaying
-          ? 'border-primary bg-primary/20 shadow-lg shadow-primary/50 translate-y-0.5' 
-          : 'border-border bg-card shadow-md active:translate-y-0.5'
-        }
-        ${isPlaying ? 'animate-pulse' : ''}
-      `}
-      style={{
-        boxShadow: (isActive || isPlaying)
-          ? '0 2px 0 hsl(var(--primary)), inset 0 1px 2px rgba(0,0,0,0.3)'
-          : '0 4px 0 hsl(var(--border)), inset 0 1px 0 rgba(255,255,255,0.1)'
-      }}
-      onTouchStart={(e) => {
-        e.preventDefault();
-        onTouchStart?.();
-      }}
-      onClick={onTouchStart}
-    >
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span className={`font-bold text-sm ${(isActive || isPlaying) ? 'text-primary' : 'text-foreground'}`}>
-          {keyLabel}
-        </span>
+}) => {
+  const handleTouch = (e: React.TouchEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onTouchStart?.();
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    // Only handle click if not a touch device
+    if ('ontouchstart' in window) {
+      e.preventDefault();
+      return;
+    }
+    onTouchStart?.();
+  };
+
+  return (
+    <div className="relative inline-flex flex-col items-center">
+      <div
+        className={`
+          relative w-10 h-10 rounded-lg select-none
+          border-2 transition-all duration-150 cursor-pointer
+          ${isActive || isPlaying
+            ? 'border-primary bg-primary/20 shadow-lg shadow-primary/50 translate-y-0.5' 
+            : 'border-border bg-card shadow-md active:translate-y-0.5'
+          }
+          ${isPlaying ? 'animate-pulse' : ''}
+        `}
+        style={{
+          boxShadow: (isActive || isPlaying)
+            ? '0 2px 0 hsl(var(--primary)), inset 0 1px 2px rgba(0,0,0,0.3)'
+            : '0 4px 0 hsl(var(--border)), inset 0 1px 0 rgba(255,255,255,0.1)',
+          WebkitUserSelect: 'none',
+          WebkitTouchCallout: 'none'
+        }}
+        onTouchStart={handleTouch}
+        onClick={handleClick}
+      >
+        <div className="absolute inset-0 flex items-center justify-center select-none">
+          <span className={`font-bold text-sm select-none ${(isActive || isPlaying) ? 'text-primary' : 'text-foreground'}`}>
+            {keyLabel}
+          </span>
+        </div>
+        {/* Bottom shadow part */}
+        <div className="absolute -bottom-1 left-0.5 right-0.5 h-1 bg-background/50 rounded-b blur-sm" />
       </div>
-      {/* Bottom shadow part */}
-      <div className="absolute -bottom-1 left-0.5 right-0.5 h-1 bg-background/50 rounded-b blur-sm" />
     </div>
-  </div>
-);
+  );
+};
 
 const KeyboardTriggers = ({ 
   activeKeys, 
