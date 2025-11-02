@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Settings } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import React from "react";
 
 interface SequencerProps {
@@ -15,12 +17,22 @@ interface SequencerProps {
   sequenceKeysInfo?: { mapped: { [key: string]: boolean[][] }; active: string | null };
 }
 
-const TRACK_NAMES = ["Kick 1", "Snare 1", "HH 1"];
+const TRACK_NAMES = ["Kick", "Snare", "Hi-Hat"];
 const STEPS = 16;
 const DEFAULT_SAMPLES = [
   "/drum-kit/KICK1.wav",
   "/drum-kit/Snare1.wav",
   "/drum-kit/HH1.wav",
+];
+
+const DRUM_KIT_FILES = [
+  { name: "Kick 1", path: "/drum-kit/KICK1.wav" },
+  { name: "Kick 2", path: "/drum-kit/KICK2.wav" },
+  { name: "Snare 1", path: "/drum-kit/Snare1.wav" },
+  { name: "Snare 2", path: "/drum-kit/Snare2.wav" },
+  { name: "HH 1", path: "/drum-kit/HH1.wav" },
+  { name: "HH 2", path: "/drum-kit/HH2.wav" },
+  { name: "HH 3", path: "/drum-kit/HH3.wav" },
 ];
 
 const Sequencer = ({ bpm, isPlaying, onTriggerSample, sampleNames, metronome, onTogglePlay, onMapKey, onClearMap, sequenceKeysInfo }: SequencerProps) => {
@@ -32,16 +44,43 @@ const Sequencer = ({ bpm, isPlaying, onTriggerSample, sampleNames, metronome, on
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const [buffers, setBuffers] = useState<(AudioBuffer | null)[]>([null, null, null]);
   const ctxRef = useRef<AudioContext | null>(null);
+  const [selectedSamples, setSelectedSamples] = useState<string[]>(DEFAULT_SAMPLES);
+  const [showEQ, setShowEQ] = useState<number | null>(null);
+  const [eqSettings, setEqSettings] = useState<{low: number, mid: number, high: number}[]>([
+    { low: 0, mid: 0, high: 0 },
+    { low: 0, mid: 0, high: 0 },
+    { low: 0, mid: 0, high: 0 },
+  ]);
+  const eqNodesRef = useRef<{low: BiquadFilterNode, mid: BiquadFilterNode, high: BiquadFilterNode}[]>([]);
 
-  // On mount, load all default samples
+  // On mount, load all default samples and create EQ nodes
   useEffect(() => {
     const win = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
     const AudioCtx = win.AudioContext ?? win.webkitAudioContext;
     if (!AudioCtx) return;
     ctxRef.current = new AudioCtx();
     const ctx = ctxRef.current;
+    
+    // Create EQ nodes for each track
+    eqNodesRef.current = Array(3).fill(null).map(() => ({
+      low: ctx.createBiquadFilter(),
+      mid: ctx.createBiquadFilter(),
+      high: ctx.createBiquadFilter(),
+    }));
+    
+    // Configure filters
+    eqNodesRef.current.forEach((nodes) => {
+      nodes.low.type = 'lowshelf';
+      nodes.low.frequency.value = 320;
+      nodes.mid.type = 'peaking';
+      nodes.mid.frequency.value = 1000;
+      nodes.mid.Q.value = 0.5;
+      nodes.high.type = 'highshelf';
+      nodes.high.frequency.value = 3200;
+    });
+    
     Promise.all(
-      DEFAULT_SAMPLES.map(async (url) => {
+      selectedSamples.map(async (url) => {
         const resp = await fetch(url);
         const arrayBuffer = await resp.arrayBuffer();
         return await ctx.decodeAudioData(arrayBuffer);
@@ -50,6 +89,37 @@ const Sequencer = ({ bpm, isPlaying, onTriggerSample, sampleNames, metronome, on
     // Clean up
     return () => { ctx?.close(); };
   }, []);
+  
+  // Reload buffer when sample changes
+  const handleSampleChange = async (trackIndex: number, samplePath: string) => {
+    const newSelectedSamples = [...selectedSamples];
+    newSelectedSamples[trackIndex] = samplePath;
+    setSelectedSamples(newSelectedSamples);
+    
+    if (ctxRef.current) {
+      const resp = await fetch(samplePath);
+      const arrayBuffer = await resp.arrayBuffer();
+      const buffer = await ctxRef.current.decodeAudioData(arrayBuffer);
+      setBuffers(prev => {
+        const newBuffers = [...prev];
+        newBuffers[trackIndex] = buffer;
+        return newBuffers;
+      });
+    }
+  };
+  
+  // Update EQ gain
+  const updateEQ = (trackIndex: number, band: 'low' | 'mid' | 'high', value: number) => {
+    setEqSettings(prev => {
+      const newSettings = [...prev];
+      newSettings[trackIndex] = { ...newSettings[trackIndex], [band]: value };
+      return newSettings;
+    });
+    
+    if (eqNodesRef.current[trackIndex]) {
+      eqNodesRef.current[trackIndex][band].gain.value = value;
+    }
+  };
 
   useEffect(() => {
     if (isPlaying && isExpanded) {
@@ -63,7 +133,18 @@ const Sequencer = ({ bpm, isPlaying, onTriggerSample, sampleNames, metronome, on
               if (!ctx) return;
               const src = ctx.createBufferSource();
               src.buffer = buffers[trackIndex]!;
-              src.connect(ctx.destination);
+              
+              // Apply EQ chain
+              const eqNodes = eqNodesRef.current[trackIndex];
+              if (eqNodes) {
+                src.connect(eqNodes.low);
+                eqNodes.low.connect(eqNodes.mid);
+                eqNodes.mid.connect(eqNodes.high);
+                eqNodes.high.connect(ctx.destination);
+              } else {
+                src.connect(ctx.destination);
+              }
+              
               src.start();
             }
           });
@@ -103,7 +184,7 @@ const Sequencer = ({ bpm, isPlaying, onTriggerSample, sampleNames, metronome, on
         className="p-4 cursor-pointer flex justify-between items-center hover:bg-accent/50 transition-colors"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <h3 className="text-sm font-bold">Sequencer</h3>
+        <h3 className="text-sm font-bold">Drums and Sequencer</h3>
         {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
       </div>
       {isExpanded && (
@@ -116,12 +197,74 @@ const Sequencer = ({ bpm, isPlaying, onTriggerSample, sampleNames, metronome, on
               Clear Pattern
             </Button>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {TRACK_NAMES.map((name, trackIndex) => (
               <div key={trackIndex} className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs w-20 font-mono">{name}</span>
+                  <span className="text-xs w-16 font-mono">{name}</span>
+                  <Select 
+                    value={selectedSamples[trackIndex]} 
+                    onValueChange={(value) => handleSampleChange(trackIndex, value)}
+                  >
+                    <SelectTrigger className="h-7 text-xs w-24">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DRUM_KIT_FILES.map((file) => (
+                        <SelectItem key={file.path} value={file.path} className="text-xs">
+                          {file.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2"
+                    onClick={() => setShowEQ(showEQ === trackIndex ? null : trackIndex)}
+                  >
+                    <Settings size={14} />
+                  </Button>
                 </div>
+                
+                {showEQ === trackIndex && (
+                  <div className="bg-muted/50 p-2 rounded space-y-2 mb-2">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-muted-foreground">Low: {eqSettings[trackIndex].low.toFixed(1)} dB</label>
+                      <Slider
+                        value={[eqSettings[trackIndex].low]}
+                        onValueChange={([value]) => updateEQ(trackIndex, 'low', value)}
+                        min={-12}
+                        max={12}
+                        step={0.5}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-muted-foreground">Mid: {eqSettings[trackIndex].mid.toFixed(1)} dB</label>
+                      <Slider
+                        value={[eqSettings[trackIndex].mid]}
+                        onValueChange={([value]) => updateEQ(trackIndex, 'mid', value)}
+                        min={-12}
+                        max={12}
+                        step={0.5}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-muted-foreground">High: {eqSettings[trackIndex].high.toFixed(1)} dB</label>
+                      <Slider
+                        value={[eqSettings[trackIndex].high]}
+                        onValueChange={([value]) => updateEQ(trackIndex, 'high', value)}
+                        min={-12}
+                        max={12}
+                        step={0.5}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                )}
+                
                 <div className="flex gap-1">
                   {Array(STEPS)
                     .fill(0)
