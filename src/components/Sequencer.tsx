@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronUp, Settings } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,12 +12,12 @@ interface SequencerProps {
   sampleNames: string[];
   metronome?: React.ReactNode;
   onTogglePlay?: () => void;
-  onMapKey?: (key: string, pattern: boolean[][]) => void; // NEW
+  onMapKey?: (key: string, pattern: boolean[][]) => void;
   onClearMap?: (key: string) => void;
   sequenceKeysInfo?: { mapped: { [key: string]: boolean[][] }; active: string | null };
+  onPlayDrumReady?: (playDrum: (trackIndex: number) => void) => void;
 }
 
-const TRACK_NAMES = ["Kick", "Snare", "Hi-Hat"];
 const STEPS = 16;
 const DEFAULT_SAMPLES = [
   "/drum-kit/KICK1.wav",
@@ -35,7 +35,7 @@ const DRUM_KIT_FILES = [
   { name: "HH 3", path: "/drum-kit/HH3.wav" },
 ];
 
-const Sequencer = ({ bpm, isPlaying, onTriggerSample, sampleNames, metronome, onTogglePlay, onMapKey, onClearMap, sequenceKeysInfo }: SequencerProps) => {
+const Sequencer = ({ bpm, isPlaying, onTriggerSample, sampleNames, metronome, onTogglePlay, onMapKey, onClearMap, sequenceKeysInfo, onPlayDrumReady }: SequencerProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [pattern, setPattern] = useState<boolean[][]>(
     Array(3).fill(null).map(() => Array(STEPS).fill(false))
@@ -121,6 +121,35 @@ const Sequencer = ({ bpm, isPlaying, onTriggerSample, sampleNames, metronome, on
     }
   };
 
+  // Play drum with EQ applied
+  const playDrumWithEQ = useCallback((trackIndex: number) => {
+    if (!buffers[trackIndex] || !ctxRef.current) return;
+    
+    const ctx = ctxRef.current;
+    const src = ctx.createBufferSource();
+    src.buffer = buffers[trackIndex]!;
+    
+    // Apply EQ chain
+    const eqNodes = eqNodesRef.current[trackIndex];
+    if (eqNodes) {
+      src.connect(eqNodes.low);
+      eqNodes.low.connect(eqNodes.mid);
+      eqNodes.mid.connect(eqNodes.high);
+      eqNodes.high.connect(ctx.destination);
+    } else {
+      src.connect(ctx.destination);
+    }
+    
+    src.start();
+  }, [buffers]);
+
+  // Expose playDrumWithEQ to parent
+  useEffect(() => {
+    if (onPlayDrumReady) {
+      onPlayDrumReady(playDrumWithEQ);
+    }
+  }, [onPlayDrumReady, playDrumWithEQ]);
+
   useEffect(() => {
     if (isPlaying && isExpanded) {
       const stepDuration = (60 / bpm / 4) * 1000;
@@ -198,11 +227,10 @@ const Sequencer = ({ bpm, isPlaying, onTriggerSample, sampleNames, metronome, on
             </Button>
           </div>
           <div className="space-y-3">
-            {TRACK_NAMES.map((name, trackIndex) => (
+            {[0, 1, 2].map((trackIndex) => (
               <div key={trackIndex} className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs w-16 font-mono">{name}</span>
-                  <Select 
+                  <Select
                     value={selectedSamples[trackIndex]} 
                     onValueChange={(value) => handleSampleChange(trackIndex, value)}
                   >

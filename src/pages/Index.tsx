@@ -8,7 +8,7 @@ import SliceControls, { SliceSettings } from "@/components/SliceControls";
 import Metronome from "@/components/Metronome";
 import Sequencer from "@/components/Sequencer";
 import SmartCleanKnob from "@/components/SmartCleanKnob";
-import DrumPads from "@/components/DrumPads";
+
 import KeyboardTriggers from "@/components/KeyboardTriggers";
 import RecordingControls from "@/components/RecordingControls";
 import { Button } from "@/components/ui/button";
@@ -54,17 +54,8 @@ const Index = () => {
   const [isSequencerPlaying, setIsSequencerPlaying] = useState(false);
   const [isSequencerExpanded, setIsSequencerExpanded] = useState(false);
   
-  // Drum state (6 tracks for sequencer)
-  const [drumPads, setDrumPads] = useState<DrumPad[]>([
-    { sampleName: 'Kick', audioBuffer: null },
-    { sampleName: 'Snare', audioBuffer: null },
-    { sampleName: 'Closed Hat', audioBuffer: null },
-  ]);
-  const drumPadsRef = useRef<DrumPad[]>([
-    { sampleName: 'Kick', audioBuffer: null },
-    { sampleName: 'Snare', audioBuffer: null },
-    { sampleName: 'Closed Hat', audioBuffer: null },
-  ]);
+  // Drum playback function from Sequencer
+  const sequencerPlayDrumRef = useRef<((trackIndex: number) => void) | null>(null);
 
   const mappedSequences = useRef<{[key: string]: boolean[][]}>({});
   const sequencePlaybackRef = useRef<NodeJS.Timeout | null>(null);
@@ -96,26 +87,6 @@ const Index = () => {
   // Use the audio context from masterGainNode
   const ctx = masterGainNode.ctx;
 
-  // Load drum samples for manual play on mount
-  useEffect(() => {
-    const ctx = masterGainNode.ctx;
-    const FILES = [
-      '/drum-kit/KICK1.wav', '/drum-kit/Snare1.wav', '/drum-kit/HH1.wav'
-    ];
-    Promise.all(FILES.map(async (url) => {
-      const resp = await fetch(url);
-      const arr = await resp.arrayBuffer();
-      return ctx.decodeAudioData(arr);
-    })).then(buffers => {
-      const newPads = [
-        { sampleName: 'Kick 1', audioBuffer: buffers[0] },
-        { sampleName: 'Snare 1', audioBuffer: buffers[1] },
-        { sampleName: 'HH 1', audioBuffer: buffers[2] }
-      ];
-      drumPadsRef.current = newPads;
-      setDrumPads(newPads);
-    });
-  }, [masterGainNode.ctx]);
 
   // Handle file upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -315,19 +286,14 @@ const Index = () => {
 
   // Play drum pad by track index with visual feedback
   const playDrumPad = useCallback((trackIndex: number) => {
-    const pad = drumPadsRef.current[trackIndex];
-    if (!pad?.audioBuffer) return;
-
-    const source = ctx.createBufferSource();
-    source.buffer = pad.audioBuffer;
-    source.connect(masterGainNode.gainNode);
-    source.start();
-    audioSourcesRef.current.push(source);
+    if (sequencerPlayDrumRef.current) {
+      sequencerPlayDrumRef.current(trackIndex);
+    }
     
     // Visual feedback
     setCurrentlyPlayingDrum(trackIndex);
     setTimeout(() => setCurrentlyPlayingDrum(null), 150); // Flash for 150ms
-  }, [ctx, masterGainNode]);
+  }, []);
 
   // Keyboard handling
   useEffect(() => {
@@ -449,11 +415,8 @@ const Index = () => {
           function playStep() {
             // Play all tracks for current step
             for (let i = 0; i < 3; i++) {
-              if (seq[i][step] && drumPadsRef.current[i]?.audioBuffer) {
-                const source = ctx.createBufferSource();
-                source.buffer = drumPadsRef.current[i].audioBuffer!;
-                source.connect(masterGainNode.gainNode);
-                source.start();
+              if (seq[i][step] && sequencerPlayDrumRef.current) {
+                sequencerPlayDrumRef.current(i);
               }
             }
             // Move to next step
@@ -529,20 +492,6 @@ const Index = () => {
   };
 
   // Handle drum sample upload by track index
-  const handleDrumSampleUpload = async (trackIndex: number, file: File) => {
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = await ctx.decodeAudioData(arrayBuffer);
-    
-    const newPads = drumPadsRef.current.map((pad, idx) => 
-      idx === trackIndex 
-        ? { ...pad, sampleName: file.name, audioBuffer: buffer }
-        : pad
-    );
-    drumPadsRef.current = newPads;
-    setDrumPads(newPads);
-    
-    toast.success(`Sample loaded for track ${trackIndex + 1}`);
-  };
 
   // Enhanced Smart Clean processing with Web Audio API filters
   const processCleanAudio = useCallback(async () => {
@@ -860,7 +809,7 @@ const Index = () => {
               bpm={bpm}
               isPlaying={isSequencerPlaying}
               onTriggerSample={playDrumPad}
-              sampleNames={drumPads.map(pad => pad.sampleName)}
+              sampleNames={[]}
               metronome={
                 <Metronome
                   bpm={bpm}
@@ -873,11 +822,9 @@ const Index = () => {
               onMapKey={handleMapSequencerKey}
               onClearMap={handleClearMap}
               sequenceKeysInfo={{ mapped: mappedSequences.current, active: activeSequenceKey }}
-            />
-            
-            <DrumPads 
-              drumPads={drumPads}
-              onSampleUpload={handleDrumSampleUpload}
+              onPlayDrumReady={(playDrum) => {
+                sequencerPlayDrumRef.current = playDrum;
+              }}
             />
           </div>
 
@@ -922,11 +869,8 @@ const Index = () => {
               setActiveSequenceKey(key);
               function playStep() {
                 for (let i = 0; i < 3; i++) {
-                  if (seq[i][step] && drumPadsRef.current[i]?.audioBuffer) {
-                    const source = ctx.createBufferSource();
-                    source.buffer = drumPadsRef.current[i].audioBuffer!;
-                    source.connect(masterGainNode.gainNode);
-                    source.start();
+                  if (seq[i][step] && sequencerPlayDrumRef.current) {
+                    sequencerPlayDrumRef.current(i);
                   }
                 }
                 step = (step + 1) % steps;
