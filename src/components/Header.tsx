@@ -1,5 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { User } from "@supabase/supabase-js";
 import DarkModeToggle from "./DarkModeToggle";
+import AuthModal from "./AuthModal";
+import { Button } from "@/components/ui/button";
+import { LogOut } from "lucide-react";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +18,29 @@ import {
 const Header = () => {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    toast.success("Logged out successfully");
+  };
 
   return (
     <header className="border-b-2 border-border py-4 px-6">
@@ -84,9 +113,27 @@ const Header = () => {
               </DialogContent>
             </Dialog>
           </nav>
-          <DarkModeToggle />
+          <div className="flex items-center gap-4">
+            {user ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm">{user.email}</span>
+                <Button variant="ghost" size="icon" onClick={handleLogout}>
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <Button variant="outline" onClick={() => setAuthModalOpen(true)}>
+                Log In
+              </Button>
+            )}
+            <DarkModeToggle />
+          </div>
         </div>
       </div>
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+      />
     </header>
   );
 };

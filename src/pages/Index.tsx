@@ -2,17 +2,17 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions";
+import { supabase } from "@/integrations/supabase/client";
+import { User, Session } from "@supabase/supabase-js";
 import Header from "@/components/Header";
 import WaveformDisplay from "@/components/WaveformDisplay";
 import SliceControls, { SliceSettings } from "@/components/SliceControls";
 import Metronome from "@/components/Metronome";
 import Sequencer from "@/components/Sequencer";
-import SmartCleanKnob from "@/components/SmartCleanKnob";
-
 import KeyboardTriggers from "@/components/KeyboardTriggers";
 import RecordingControls from "@/components/RecordingControls";
+import AuthModal from "@/components/AuthModal";
 import { Button } from "@/components/ui/button";
-import { convertAudioToFormat } from "@/lib/audioConverter";
 
 interface WaveSurferRegion {
   start: number;
@@ -65,10 +65,13 @@ const Index = () => {
   // UI state
   const activeKeysRef = useRef<Set<string>>(new Set());
   const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set());
-  const [cleanValue, setCleanValue] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  
+  // Auth state
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   
   // Loop recording state
   const [isLoopRecording, setIsLoopRecording] = useState(false);
@@ -81,11 +84,26 @@ const Index = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const recordingDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
-  const cleanPlaybackSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const [isSmartCleanPlaying, setIsSmartCleanPlaying] = useState(false);
 
   // Use the audio context from masterGainNode
   const ctx = masterGainNode.ctx;
+
+  // Auth listener
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
 
   // Handle file upload
@@ -493,189 +511,6 @@ const Index = () => {
 
   // Handle drum sample upload by track index
 
-  // Enhanced Smart Clean processing with Web Audio API filters
-  const processCleanAudio = useCallback(async () => {
-    if (!masterBuffer) return null;
-    
-    const offlineContext = new OfflineAudioContext(
-      masterBuffer.numberOfChannels,
-      masterBuffer.length,
-      masterBuffer.sampleRate
-    );
-    
-    const source = offlineContext.createBufferSource();
-    source.buffer = masterBuffer;
-    
-    // Clean intensity from 0-100
-    const intensity = cleanValue / 100;
-    
-    if (intensity === 0) {
-      // Bypass processing
-      source.connect(offlineContext.destination);
-      source.start();
-      return await offlineContext.startRendering();
-    }
-    
-    // Create processing chain based on intensity
-    let currentNode: AudioNode = source;
-    
-    // 1. High-pass filter - removes low-frequency rumble and hum
-    if (intensity > 0.1) {
-      const hpFilter = offlineContext.createBiquadFilter();
-      hpFilter.type = 'highpass';
-      // Increase cutoff frequency with intensity (50Hz to 150Hz)
-      hpFilter.frequency.value = 50 + (intensity * 100);
-      hpFilter.Q.value = 0.7;
-      currentNode.connect(hpFilter);
-      currentNode = hpFilter;
-    }
-    
-    // 2. Notch filters for common electrical noise (50/60Hz hum)
-    if (intensity > 0.3) {
-      const notch60 = offlineContext.createBiquadFilter();
-      notch60.type = 'notch';
-      notch60.frequency.value = 60;
-      notch60.Q.value = 10;
-      currentNode.connect(notch60);
-      currentNode = notch60;
-      
-      const notch120 = offlineContext.createBiquadFilter();
-      notch120.type = 'notch';
-      notch120.frequency.value = 120;
-      notch120.Q.value = 10;
-      currentNode.connect(notch120);
-      currentNode = notch120;
-    }
-    
-    // 3. Noise gate simulation using dynamics compressor
-    if (intensity > 0.2) {
-      const compressor = offlineContext.createDynamicsCompressor();
-      // Aggressive settings to act as noise gate
-      compressor.threshold.value = -50 + (intensity * 30); // -50dB to -20dB
-      compressor.knee.value = 0; // Hard knee
-      compressor.ratio.value = 12 + (intensity * 8); // 12:1 to 20:1
-      compressor.attack.value = 0.001; // Fast attack
-      compressor.release.value = 0.05; // Quick release
-      currentNode.connect(compressor);
-      currentNode = compressor;
-    }
-    
-    // 4. Multi-band EQ for noise reduction
-    if (intensity > 0.4) {
-      // Reduce low-mids (mud region)
-      const lowMid = offlineContext.createBiquadFilter();
-      lowMid.type = 'peaking';
-      lowMid.frequency.value = 250;
-      lowMid.Q.value = 1.0;
-      lowMid.gain.value = -3 - (intensity * 6); // -3dB to -9dB
-      currentNode.connect(lowMid);
-      currentNode = lowMid;
-      
-      // Boost presence for clarity
-      const presence = offlineContext.createBiquadFilter();
-      presence.type = 'peaking';
-      presence.frequency.value = 3000;
-      presence.Q.value = 1.5;
-      presence.gain.value = 2 + (intensity * 3); // +2dB to +5dB
-      currentNode.connect(presence);
-      currentNode = presence;
-    }
-    
-    // 5. De-esser (reduce harsh highs)
-    if (intensity > 0.6) {
-      const deEss = offlineContext.createBiquadFilter();
-      deEss.type = 'highshelf';
-      deEss.frequency.value = 8000;
-      deEss.gain.value = -2 - (intensity * 4); // -2dB to -6dB
-      currentNode.connect(deEss);
-      currentNode = deEss;
-    }
-    
-    // 6. Final limiter to prevent clipping
-    if (intensity > 0.5) {
-      const limiter = offlineContext.createDynamicsCompressor();
-      limiter.threshold.value = -6;
-      limiter.knee.value = 0;
-      limiter.ratio.value = 20;
-      limiter.attack.value = 0.001;
-      limiter.release.value = 0.1;
-      currentNode.connect(limiter);
-      currentNode = limiter;
-    }
-    
-    // 7. Output gain compensation
-    const outputGain = offlineContext.createGain();
-    // Compensate for volume loss from filtering
-    outputGain.gain.value = 1.0 + (intensity * 0.3);
-    currentNode.connect(outputGain);
-    outputGain.connect(offlineContext.destination);
-    
-    source.start();
-    return await offlineContext.startRendering();
-  }, [masterBuffer, cleanValue]);
-
-  const handleListenToggle = async () => {
-    if (isSmartCleanPlaying) {
-      try { cleanPlaybackSourceRef.current?.stop(); } catch(e) { void e; }
-      cleanPlaybackSourceRef.current = null;
-      setIsSmartCleanPlaying(false);
-      return;
-    }
-    setIsProcessing(true);
-    setIsSmartCleanPlaying(true);
-    try {
-      const processedBuffer = await processCleanAudio();
-      if (processedBuffer) {
-        const source = ctx.createBufferSource();
-        source.buffer = processedBuffer;
-        source.connect(masterGainNode.gainNode);
-        source.start();
-        cleanPlaybackSourceRef.current = source;
-        toast.success("Playing cleaned audio");
-        source.onended = () => {
-          if (cleanPlaybackSourceRef.current === source) cleanPlaybackSourceRef.current = null;
-          setIsSmartCleanPlaying(false);
-        };
-      }
-    } catch (error) {
-      toast.error("Error processing audio");
-      setIsSmartCleanPlaying(false);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleStopListen = () => {
-    try {
-      cleanPlaybackSourceRef.current?.stop();
-    } catch (e) {
-      void e;
-    }
-    cleanPlaybackSourceRef.current = null;
-  };
-
-  const handleDownloadClean = async (format: 'wav' | 'mp3') => {
-    setIsProcessing(true);
-    try {
-      const processedBuffer = await processCleanAudio();
-      if (processedBuffer) {
-        const wav = audioBufferToWav(processedBuffer);
-        const wavBlob = new Blob([wav], { type: 'audio/wav' });
-        
-        const finalBlob = format === 'mp3' 
-          ? await convertAudioToFormat(wavBlob, 'mp3')
-          : wavBlob;
-        
-        const extension = format === 'mp3' ? 'mp3' : 'wav';
-        downloadBlob(finalBlob, `cleaned-audio.${extension}`);
-        toast.success("Download started");
-      }
-    } catch (error) {
-      toast.error("Error exporting audio");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
   // Recording - proper implementation with master gain routing
   const startRecording = () => {
@@ -727,20 +562,50 @@ const Index = () => {
     setIsRecording(false);
   };
 
-  const downloadRecording = async (format: 'wav' | 'mp3') => {
-    if (recordedBlob) {
-      try {
-        const finalBlob = format === 'mp3' 
-          ? await convertAudioToFormat(recordedBlob, 'mp3')
-          : recordedBlob;
-        
-        const extension = format === 'mp3' ? 'mp3' : 'webm';
-        downloadBlob(finalBlob, `performance.${extension}`);
-        toast.success("Performance downloaded");
-      } catch (error) {
-        console.error('Error converting audio:', error);
-        toast.error("Error during download");
+  const downloadRecording = async () => {
+    if (!recordedBlob) return;
+
+    // Check if user is logged in
+    if (!user || !session) {
+      setAuthModalOpen(true);
+      toast.error("Please log in to download");
+      return;
+    }
+
+    try {
+      // Check download count for this month
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      
+      const { data: downloads, error: fetchError } = await supabase
+        .from("downloads")
+        .select("*")
+        .eq("user_id", user.id)
+        .gte("download_date", startOfMonth.toISOString());
+
+      if (fetchError) throw fetchError;
+
+      // Free users limited to 1 download per month
+      if (downloads && downloads.length >= 1) {
+        toast.error("Free plan limit: 1 download per month. Upgrade to Premium for unlimited downloads!");
+        return;
       }
+
+      // Proceed with download
+      downloadBlob(recordedBlob, `performance.webm`);
+      
+      // Track the download
+      const { error: insertError } = await supabase.from("downloads").insert({
+        user_id: user.id,
+        file_format: "wav",
+      });
+
+      if (insertError) throw insertError;
+      
+      toast.success("Performance downloaded!");
+    } catch (error: any) {
+      console.error("Error downloading:", error);
+      toast.error("Error during download");
     }
   };
 
@@ -804,7 +669,7 @@ const Index = () => {
           </div>
 
           {/* Sequencer with embedded Metronome */}
-          <div className="space-y-4">
+          <div className="lg:col-span-2 space-y-4">
             <Sequencer
               bpm={bpm}
               isPlaying={isSequencerPlaying}
@@ -825,18 +690,6 @@ const Index = () => {
               onPlayDrumReady={(playDrum) => {
                 sequencerPlayDrumRef.current = playDrum;
               }}
-            />
-          </div>
-
-          {/* Smart cleaner */}
-          <div>
-            <SmartCleanKnob
-              value={cleanValue}
-              onChange={setCleanValue}
-              onListen={handleListenToggle}
-              isPlaying={isSmartCleanPlaying}
-              onDownload={handleDownloadClean}
-              isProcessing={isProcessing}
             />
           </div>
         </div>
@@ -934,6 +787,10 @@ const Index = () => {
           hasRecording={!!recordedBlob}
         />
 
+        <AuthModal
+          isOpen={authModalOpen}
+          onClose={() => setAuthModalOpen(false)}
+        />
       </main>
     </div>
   );
