@@ -38,8 +38,10 @@ const Knob = ({ label, value, onChange, min, max, step, unit, formatValue }: Kno
       const deltaY = -e.movementY;
       const range = max - min;
       const change = (deltaY / 200) * range; // Slower sensitivity
-      const newValue = Math.max(min, Math.min(max, value + change));
-      onChange(newValue);
+      const raw = value + change;
+      const snapped = Math.round(raw / step) * step; // honor step increments
+      const clamped = Math.max(min, Math.min(max, snapped));
+      onChange(clamped);
     };
 
     const handleMouseUp = () => {
@@ -53,7 +55,7 @@ const Knob = ({ label, value, onChange, min, max, step, unit, formatValue }: Kno
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, value, onChange, min, max]);
+  }, [isDragging, value, onChange, min, max, step]);
 
   const rotation = ((value - min) / (max - min)) * 270 - 135;
   
