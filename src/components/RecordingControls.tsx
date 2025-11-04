@@ -33,7 +33,7 @@ const RecordingControls = ({
         disabled={!hasRecording || isRecording}
       >
         <Download className="w-4 h-4 mr-2" />
-        Download as WAV
+        Download recording
       </Button>
     </div>
   );

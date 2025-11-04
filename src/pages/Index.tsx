@@ -573,36 +573,65 @@ const Index = () => {
     }
 
     try {
-      // Check download count for this month
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      
-      const { data: downloads, error: fetchError } = await supabase
-        .from("downloads")
-        .select("*")
-        .eq("user_id", user.id)
-        .gte("download_date", startOfMonth.toISOString());
+      // Check user's premium status
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("is_premium")
+        .eq("id", user.id)
+        .single();
 
-      if (fetchError) throw fetchError;
+      if (profileError) throw profileError;
 
-      // Free users limited to 1 download per month
-      if (downloads && downloads.length >= 1) {
-        toast.error("Free plan limit: 1 download per month. Upgrade to Premium for unlimited downloads!");
-        return;
+      const isPremium = profile?.is_premium || false;
+
+      // Check download count for this month (free users only)
+      if (!isPremium) {
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        
+        const { data: downloads, error: fetchError } = await supabase
+          .from("downloads")
+          .select("*")
+          .eq("user_id", user.id)
+          .gte("download_date", startOfMonth.toISOString());
+
+        if (fetchError) throw fetchError;
+
+        // Free users limited to 1 download per month
+        if (downloads && downloads.length >= 1) {
+          toast.error("Free plan limit: 1 download per month. Upgrade to Premium for unlimited downloads and WAV format!");
+          return;
+        }
       }
 
-      // Proceed with download
-      downloadBlob(recordedBlob, `performance.webm`);
-      
-      // Track the download
-      const { error: insertError } = await supabase.from("downloads").insert({
-        user_id: user.id,
-        file_format: "wav",
-      });
-
-      if (insertError) throw insertError;
-      
-      toast.success("Performance downloaded!");
+      // Premium users get WAV format, free users get WEBM
+      if (isPremium) {
+        // Convert webm blob to audio buffer, then to WAV
+        const arrayBuffer = await recordedBlob.arrayBuffer();
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+        const wavBuffer = audioBufferToWav(audioBuffer);
+        const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+        downloadBlob(wavBlob, 'performance.wav');
+        
+        // Track the download
+        await supabase.from("downloads").insert({
+          user_id: user.id,
+          file_format: "wav",
+        });
+        
+        toast.success("Premium WAV downloaded!");
+      } else {
+        // Free users download as webm
+        downloadBlob(recordedBlob, 'performance.webm');
+        
+        // Track the download
+        await supabase.from("downloads").insert({
+          user_id: user.id,
+          file_format: "webm",
+        });
+        
+        toast.success("Free WEBM downloaded! Upgrade to Premium for WAV format.");
+      }
     } catch (error: any) {
       console.error("Error downloading:", error);
       toast.error("Error during download");
@@ -655,7 +684,7 @@ const Index = () => {
         )}
 
         {/* Main controls grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Slice controls */}
           <div>
             {activeSlice && slices.has(activeSlice) && (
@@ -669,7 +698,7 @@ const Index = () => {
           </div>
 
           {/* Sequencer with embedded Metronome */}
-          <div className="lg:col-span-2 space-y-4">
+          <div className="space-y-4">
             <Sequencer
               bpm={bpm}
               isPlaying={isSequencerPlaying}
