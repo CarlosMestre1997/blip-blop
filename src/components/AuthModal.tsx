@@ -64,11 +64,14 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }: AuthModalProps) => {
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}/`,
+          scopes: "openid email profile",
+          queryParams: { prompt: "select_account" },
         },
       });
       if (error) throw error;
     } catch (error: any) {
-      toast.error(error.message || "Google sign-in failed");
+      const msg = typeof error?.message === "string" ? error.message : "Google sign-in failed";
+      toast.error(msg.includes("access_denied") ? "Google blocked the sign-in. Check provider configuration and test user access." : msg);
       setLoading(false);
     }
   };
