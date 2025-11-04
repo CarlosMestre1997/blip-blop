@@ -1,1 +1,4 @@
 project_id = "njgmomlgypupblzedkxm"
+
+[functions.validate-download]
+verify_jwt = true

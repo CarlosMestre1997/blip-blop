@@ -573,39 +573,32 @@ const Index = () => {
     }
 
     try {
-      // Check user's premium status
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("is_premium")
-        .eq("id", user.id)
-        .single();
-
-      if (profileError) throw profileError;
-
-      const isPremium = profile?.is_premium || false;
-
-      // Check download count for this month (free users only)
-      if (!isPremium) {
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        
-        const { data: downloads, error: fetchError } = await supabase
-          .from("downloads")
-          .select("*")
-          .eq("user_id", user.id)
-          .gte("download_date", startOfMonth.toISOString());
-
-        if (fetchError) throw fetchError;
-
-        // Free users limited to 1 download per month
-        if (downloads && downloads.length >= 1) {
-          toast.error("Free plan limit: 1 download per month. Upgrade to Premium for unlimited downloads and WAV format!");
-          return;
+      // Validate download permission server-side
+      const { data: validation, error: validationError } = await supabase.functions.invoke(
+        'validate-download',
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
         }
+      );
+
+      if (validationError) {
+        console.error("Validation error:", validationError);
+        toast.error("Failed to validate download permission");
+        return;
       }
 
+      if (!validation.allowed) {
+        toast.error(validation.message);
+        return;
+      }
+
+      const isPremium = validation.isPremium;
+      const format = validation.format;
+
       // Premium users get WAV format, free users get WEBM
-      if (isPremium) {
+      if (isPremium && format === 'wav') {
         // Convert webm blob to audio buffer, then to WAV
         const arrayBuffer = await recordedBlob.arrayBuffer();
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
@@ -633,7 +626,9 @@ const Index = () => {
         toast.success("Free WEBM downloaded! Upgrade to Premium for WAV format.");
       }
     } catch (error: any) {
-      console.error("Error downloading:", error);
+      if (import.meta.env.DEV) {
+        console.error("Error downloading:", error);
+      }
       toast.error("Error during download");
     }
   };
