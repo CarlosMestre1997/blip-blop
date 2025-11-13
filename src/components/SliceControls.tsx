@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, memo } from "react";
 import { Button } from "@/components/ui/button";
 
 export interface SliceSettings {
@@ -27,7 +27,7 @@ interface KnobProps {
   formatValue?: (value: number) => string;
 }
 
-const Knob = ({ label, value, onChange, min, max, step, unit, formatValue }: KnobProps) => {
+const Knob = memo(({ label, value, onChange, min, max, step, unit, formatValue }: KnobProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const knobRef = useRef<HTMLDivElement>(null);
 
@@ -66,12 +66,12 @@ const Knob = ({ label, value, onChange, min, max, step, unit, formatValue }: Kno
       <div className="text-[10px] text-muted-foreground mb-1">{label}</div>
       <div
         ref={knobRef}
-        className="relative w-12 h-12 cursor-pointer select-none"
+        className="relative w-12 h-12 cursor-pointer select-none smooth-transition hover:scale-105"
         onMouseDown={() => setIsDragging(true)}
       >
         <div className="absolute inset-0 rounded-full border-2 border-border bg-background"></div>
         <div 
-          className="absolute inset-1 rounded-full bg-primary"
+          className="absolute inset-1 rounded-full bg-primary transition-transform duration-75"
           style={{ transform: `rotate(${rotation}deg)` }}
         >
           <div className="absolute top-0.5 left-1/2 w-0.5 h-3 bg-primary-foreground -ml-0.5 rounded-full"></div>
@@ -82,7 +82,9 @@ const Knob = ({ label, value, onChange, min, max, step, unit, formatValue }: Kno
       </div>
     </div>
   );
-};
+});
+
+Knob.displayName = 'Knob';
 
 const SliceControls = ({ sliceNumber, settings, onSettingsChange, onDelete }: SliceControlsProps) => {
   return (

@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 interface KeyboardTriggersProps {
   activeKeys: Set<string>;
   isLoopRecording?: boolean;
@@ -11,7 +13,7 @@ interface KeyboardTriggersProps {
   onGlobalStop?: () => void;
 }
 
-const KeyboardKey = ({ 
+const KeyboardKey = memo(({ 
   keyLabel, 
   isActive, 
   isPlaying, 
@@ -42,10 +44,10 @@ const KeyboardKey = ({
       <div
         className={`
           relative w-10 h-10 rounded-lg select-none
-          border-2 transition-all duration-150 cursor-pointer
+          border-2 transition-all duration-100 cursor-pointer
           ${isActive || isPlaying
-            ? 'border-primary bg-primary/20 shadow-lg shadow-primary/50 translate-y-0.5' 
-            : 'border-border bg-card shadow-md active:translate-y-0.5'
+            ? 'border-primary bg-primary/20 shadow-lg shadow-primary/50 translate-y-0.5 scale-95' 
+            : 'border-border bg-card shadow-md hover:border-muted-foreground/30 active:translate-y-0.5 active:scale-95'
           }
           ${isPlaying ? 'animate-pulse' : ''}
         `}
@@ -60,7 +62,7 @@ const KeyboardKey = ({
         onClick={handleClick}
       >
         <div className="absolute inset-0 flex items-center justify-center select-none">
-          <span className={`font-bold text-sm select-none ${(isActive || isPlaying) ? 'text-primary' : 'text-foreground'}`}>
+          <span className={`font-bold text-sm select-none transition-colors ${(isActive || isPlaying) ? 'text-primary' : 'text-foreground'}`}>
             {keyLabel}
           </span>
         </div>
@@ -69,7 +71,9 @@ const KeyboardKey = ({
       </div>
     </div>
   );
-};
+});
+
+KeyboardKey.displayName = 'KeyboardKey';
 
 const KeyboardTriggers = ({ 
   activeKeys, 

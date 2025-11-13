@@ -19,11 +19,11 @@ const RecordingControls = ({
   return (
     <div className="flex gap-2">
       {!isRecording ? (
-        <Button onClick={onStartRecording} variant="outline">
+        <Button onClick={onStartRecording} variant="outline" className="smooth-transition hover-lift">
           Record performance
         </Button>
       ) : (
-        <Button onClick={onStopRecording} variant="destructive">
+        <Button onClick={onStopRecording} variant="destructive" className="smooth-transition pulse-subtle">
           Stop recording
         </Button>
       )}
@@ -31,6 +31,7 @@ const RecordingControls = ({
       <Button 
         onClick={onDownloadRecording} 
         disabled={!hasRecording || isRecording}
+        className="smooth-transition hover-lift"
       >
         <Download className="w-4 h-4 mr-2" />
         Download recording

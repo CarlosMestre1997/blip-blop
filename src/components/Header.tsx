@@ -43,7 +43,7 @@ const Header = () => {
   };
 
   return (
-    <header className="border-b-2 border-border py-4 px-6">
+    <header className="border-b-2 border-border py-4 px-6 animate-fade-in">
       <div className="flex items-center justify-between max-w-[1600px] mx-auto">
         <h1 className="text-2xl font-bold underline decoration-2 underline-offset-4">
           Blip Blop
@@ -52,7 +52,7 @@ const Header = () => {
           <nav className="flex gap-8 text-sm">
             <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
               <DialogTrigger asChild>
-                <button className="hover:underline">About us</button>
+                <button className="hover:underline smooth-transition">About us</button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
@@ -70,7 +70,7 @@ const Header = () => {
             </Dialog>
             <Dialog open={pricingOpen} onOpenChange={setPricingOpen}>
               <DialogTrigger asChild>
-                <button className="hover:underline">Pricing</button>
+                <button className="hover:underline smooth-transition">Pricing</button>
               </DialogTrigger>
               <DialogContent className="max-w-3xl">
                 <DialogHeader>
@@ -117,12 +117,21 @@ const Header = () => {
             {user ? (
               <div className="flex items-center gap-2">
                 <span className="text-sm">{user.email}</span>
-                <Button variant="ghost" size="icon" onClick={handleLogout}>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={handleLogout}
+                  className="smooth-transition hover-lift"
+                >
                   <LogOut className="h-4 w-4" />
                 </Button>
               </div>
             ) : (
-              <Button variant="outline" onClick={() => setAuthModalOpen(true)}>
+              <Button 
+                variant="outline" 
+                onClick={() => setAuthModalOpen(true)}
+                className="smooth-transition hover-lift"
+              >
                 Log In
               </Button>
             )}
