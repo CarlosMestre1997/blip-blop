@@ -78,7 +78,7 @@ const Index = () => {
   // Loop recording state
   const [isLoopRecording, setIsLoopRecording] = useState(false);
   const [isLoopPlaying, setIsLoopPlaying] = useState(false);
-  const recordedLoopRef = useRef<Array<{ sliceNum: number; time: number }>>([]);
+  const recordedLoopRef = useRef<Array<{ type: 'slice' | 'drum'; sliceNum?: number; drumIndex?: number; time: number }>>([]);
   const loopRecordingStartTimeRef = useRef<number>(0);
   const loopPlaybackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
@@ -299,7 +299,7 @@ const Index = () => {
     // Record to loop if loop recording is active
     if (!skipLoopRecording && isLoopRecording) {
       const currentTime = Date.now() - loopRecordingStartTimeRef.current;
-      recordedLoopRef.current.push({ sliceNum, time: currentTime });
+      recordedLoopRef.current.push({ type: 'slice', sliceNum, time: currentTime });
     }
 
     // Clean up after playback
@@ -313,15 +313,21 @@ const Index = () => {
   }, [masterBuffer, slices, ctx, masterGainNode, stopCurrentSlice, isLoopRecording]);
 
   // Play drum pad by track index with visual feedback
-  const playDrumPad = useCallback((trackIndex: number) => {
+  const playDrumPad = useCallback((trackIndex: number, skipLoopRecording = false) => {
     if (sequencerPlayDrumRef.current) {
       sequencerPlayDrumRef.current(trackIndex);
+    }
+    
+    // Record to loop if loop recording is active
+    if (!skipLoopRecording && isLoopRecording) {
+      const currentTime = Date.now() - loopRecordingStartTimeRef.current;
+      recordedLoopRef.current.push({ type: 'drum', drumIndex: trackIndex, time: currentTime });
     }
     
     // Visual feedback
     setCurrentlyPlayingDrum(trackIndex);
     setTimeout(() => setCurrentlyPlayingDrum(null), 150); // Flash for 150ms
-  }, []);
+  }, [isLoopRecording]);
 
   // Keyboard handling
   useEffect(() => {
@@ -383,7 +389,11 @@ const Index = () => {
           const playLoop = () => {
             loop.forEach((event) => {
               setTimeout(() => {
-                playSlice(event.sliceNum, true); // Skip loop recording to avoid nested loops
+                if (event.type === 'slice' && event.sliceNum !== undefined) {
+                  playSlice(event.sliceNum, true); // Skip loop recording to avoid nested loops
+                } else if (event.type === 'drum' && event.drumIndex !== undefined) {
+                  playDrumPad(event.drumIndex, true); // Skip loop recording to avoid nested loops
+                }
               }, event.time);
             });
             
@@ -392,7 +402,7 @@ const Index = () => {
           };
           
           playLoop();
-          toast.success(`Loop playing (${loop.length} slices)`);
+          toast.success(`Loop playing (${loop.length} events)`);
         } else if (isLoopPlaying) {
           // Stop loop playback
           if (loopPlaybackTimeoutRef.current) {

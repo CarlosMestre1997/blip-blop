@@ -50,8 +50,15 @@ const Metronome = ({ bpm, onBpmChange, isPlaying, onToggle }: MetronomeProps) =>
   }
 
   useEffect(() => {
+    // Clear any existing interval first
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    
     if (isPlaying) {
       playSound(); // Immediate
+      setActiveBeat(1); // Reset to first beat
       const interval = (60 / bpm) * 1000;
       intervalRef.current = setInterval(() => {
         setActiveBeat(prev => {
@@ -60,15 +67,13 @@ const Metronome = ({ bpm, onBpmChange, isPlaying, onToggle }: MetronomeProps) =>
         });
       }, interval);
     } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
       setActiveBeat(1);
     }
+    
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
     };
   }, [isPlaying, bpm]);
