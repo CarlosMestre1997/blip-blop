@@ -96,11 +96,65 @@ All colors MUST be HSL.
 
 @layer utilities {
   .kbd-button {
-    @apply border-2 border-kbd-border bg-kbd-bg rounded-md transition-all;
+    @apply border-2 border-kbd-border bg-kbd-bg rounded-md transition-all duration-100;
   }
   
   .kbd-button:active,
   .kbd-button.active {
-    @apply bg-kbd-active border-ring;
+    @apply bg-kbd-active border-ring scale-95;
+  }
+  
+  .kbd-button:hover {
+    @apply border-muted-foreground/30;
+  }
+
+  /* Smooth transitions for all interactive elements */
+  .smooth-transition {
+    @apply transition-all duration-200 ease-out;
+  }
+
+  /* Professional hover lift effect */
+  .hover-lift {
+    @apply transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-lg;
+  }
+
+  /* Fade-in animation for content loading */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  /* Pulse for active states */
+  @keyframes pulse-subtle {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.8;
+    }
+  }
+
+  .pulse-subtle {
+    animation: pulse-subtle 2s ease-in-out infinite;
+  }
+
+  /* Smooth slider styling */
+  input[type="range"] {
+    @apply transition-all duration-100;
+  }
+
+  /* Button press effect */
+  .btn-press {
+    @apply active:scale-95 transition-transform duration-75;
   }
 }

@@ -13,6 +13,7 @@ import KeyboardTriggers from "@/components/KeyboardTriggers";
 import RecordingControls from "@/components/RecordingControls";
 import AuthModal from "@/components/AuthModal";
 import { Button } from "@/components/ui/button";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
 
 interface WaveSurferRegion {
   start: number;
@@ -28,6 +29,7 @@ interface DrumPad {
 
 const Index = () => {
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [wavesurfer, setWavesurfer] = useState<WaveSurfer | null>(null);
   const [regionsPlugin, setRegionsPlugin] = useState<RegionsPlugin | null>(null);
   const [masterBuffer, setMasterBuffer] = useState<AudioBuffer | null>(null);
@@ -111,14 +113,22 @@ const Index = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setAudioFile(file);
-    
-    // Load audio buffer
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = await ctx.decodeAudioData(arrayBuffer);
-    setMasterBuffer(buffer);
-    
-    toast.success("Audio file loaded");
+    setIsLoadingAudio(true);
+    try {
+      setAudioFile(file);
+      
+      // Load audio buffer
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = await ctx.decodeAudioData(arrayBuffer);
+      setMasterBuffer(buffer);
+      
+      toast.success("Audio file loaded");
+    } catch (error) {
+      toast.error("Failed to load audio file");
+      console.error("Audio loading error:", error);
+    } finally {
+      setIsLoadingAudio(false);
+    }
   };
 
   // Handle WaveSurfer ready
@@ -650,10 +660,12 @@ const Index = () => {
       
       <main className="max-w-[1600px] mx-auto p-6 space-y-6">
         {/* File input */}
-        <div>
+        <div className="animate-fade-in">
           <label htmlFor="audio-file">
-            <Button variant="outline" asChild>
-              <span className="cursor-pointer">Input file</span>
+            <Button variant="outline" asChild className="smooth-transition hover-lift">
+              <span className="cursor-pointer">
+                {isLoadingAudio ? "Loading..." : "Input file"}
+              </span>
             </Button>
           </label>
           <input
@@ -662,12 +674,20 @@ const Index = () => {
             accept="audio/*"
             onChange={handleFileUpload}
             className="hidden"
+            disabled={isLoadingAudio}
           />
         </div>
 
+        {/* Loading state */}
+        {isLoadingAudio && (
+          <div className="animate-scale-in">
+            <LoadingSpinner size="md" text="Loading audio file..." />
+          </div>
+        )}
+
         {/* Waveform */}
-        {audioFile && (
-          <div className="space-y-2">
+        {audioFile && !isLoadingAudio && (
+          <div className="space-y-2 animate-fade-in">
             <WaveformDisplay
               audioFile={audioFile}
               onWaveSurferReady={handleWaveSurferReady}
@@ -681,7 +701,7 @@ const Index = () => {
         {/* Main controls grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Slice controls */}
-          <div>
+          <div className="animate-fade-in">
             {activeSlice && slices.has(activeSlice) && (
               <SliceControls
                 sliceNumber={activeSlice}
@@ -693,7 +713,7 @@ const Index = () => {
           </div>
 
           {/* Sequencer with embedded Metronome */}
-          <div className="space-y-4">
+          <div className="space-y-4 animate-fade-in">
             <Sequencer
               bpm={bpm}
               isPlaying={isSequencerPlaying}
@@ -719,7 +739,8 @@ const Index = () => {
         </div>
 
         {/* Keyboard triggers */}
-        <KeyboardTriggers 
+        <div className="animate-fade-in">
+          <KeyboardTriggers
           activeKeys={activeKeys} 
           isLoopRecording={isLoopRecording}
           isLoopPlaying={isLoopPlaying}
@@ -801,15 +822,18 @@ const Index = () => {
           }}
           onGlobalStop={stopAllAudio}
         />
+        </div>
 
         {/* Recording controls */}
-        <RecordingControls
-          isRecording={isRecording}
-          onStartRecording={startRecording}
-          onStopRecording={stopRecording}
-          onDownloadRecording={downloadRecording}
-          hasRecording={!!recordedBlob}
-        />
+        <div className="animate-fade-in">
+          <RecordingControls
+            isRecording={isRecording}
+            onStartRecording={startRecording}
+            onStopRecording={stopRecording}
+            onDownloadRecording={downloadRecording}
+            hasRecording={!!recordedBlob}
+          />
+        </div>
 
         <AuthModal
           isOpen={authModalOpen}
