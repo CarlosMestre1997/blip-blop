@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { Crown } from "lucide-react";
 
 interface KeyboardTriggersProps {
   activeKeys: Set<string>;
@@ -11,6 +12,7 @@ interface KeyboardTriggersProps {
   onSequenceToggle?: (key: string) => void;
   onLoopToggle?: () => void;
   onGlobalStop?: () => void;
+  isPremium?: boolean;
 }
 
 const KeyboardKey = memo(({ 
@@ -85,7 +87,8 @@ const KeyboardTriggers = ({
   onDrumPlay,
   onSequenceToggle,
   onLoopToggle,
-  onGlobalStop
+  onGlobalStop,
+  isPremium = false
 }: KeyboardTriggersProps) => {
   const sliceKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
   const drumKeys = ['D', 'F', 'G'];
@@ -125,6 +128,8 @@ const KeyboardTriggers = ({
           );
         })}
         <span className="text-xs font-medium text-muted-foreground mx-2">|</span>
+        <span className="text-xs font-medium text-muted-foreground mr-1">Sequences</span>
+        {!isPremium && <Crown className="h-3 w-3 text-primary" />}
         {drumSequenceKeys.map((key) => (
           <KeyboardKey 
             key={key} 
@@ -137,6 +142,7 @@ const KeyboardTriggers = ({
 
       <div className="flex gap-2 items-center justify-center">
         <span className="text-xs font-medium text-muted-foreground mr-1">Loop Control</span>
+        {!isPremium && <Crown className="h-3 w-3 text-primary" />}
         {isLoopRecording && (
           <span className="text-xs font-bold text-red-500 animate-pulse">● REC</span>
         )}

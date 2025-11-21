@@ -12,8 +12,11 @@ import Sequencer from "@/components/Sequencer";
 import KeyboardTriggers from "@/components/KeyboardTriggers";
 import RecordingControls from "@/components/RecordingControls";
 import AuthModal from "@/components/AuthModal";
+import UpgradePrompt from "@/components/UpgradePrompt";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { usePremiumStatus } from "@/hooks/usePremiumStatus";
+import { Crown } from "lucide-react";
 
 interface WaveSurferRegion {
   start: number;
@@ -74,6 +77,11 @@ const Index = () => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  
+  // Premium status
+  const { isPremium, isLoading: isPremiumLoading } = usePremiumStatus(user);
+  const [upgradePromptOpen, setUpgradePromptOpen] = useState(false);
+  const [upgradeFeatureName, setUpgradeFeatureName] = useState("");
   
   // Loop recording state
   const [isLoopRecording, setIsLoopRecording] = useState(false);
@@ -726,9 +734,26 @@ const Index = () => {
 
           {/* Sequencer with embedded Metronome */}
           <div className="space-y-4 animate-fade-in">
+            {user && !isPremiumLoading && !isPremium && (
+              <div className="bg-muted/50 border border-border rounded-lg p-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Crown className="h-5 w-5 text-primary" />
+                  <span className="text-sm font-medium">Sequencer is a Premium Feature</span>
+                </div>
+                <Button 
+                  size="sm"
+                  onClick={() => {
+                    setUpgradeFeatureName("Sequencer");
+                    setUpgradePromptOpen(true);
+                  }}
+                >
+                  Upgrade to Premium
+                </Button>
+              </div>
+            )}
             <Sequencer
               bpm={bpm}
-              isPlaying={isSequencerPlaying}
+              isPlaying={isSequencerPlaying && (!user || isPremium)}
               onTriggerSample={playDrumPad}
               sampleNames={[]}
               metronome={
@@ -739,7 +764,14 @@ const Index = () => {
                   onToggle={() => setIsMetronomePlaying(!isMetronomePlaying)}
                 />
               }
-              onTogglePlay={() => setIsSequencerPlaying(prev => !prev)}
+              onTogglePlay={() => {
+                if (user && !isPremiumLoading && !isPremium) {
+                  setUpgradeFeatureName("Sequencer");
+                  setUpgradePromptOpen(true);
+                  return;
+                }
+                setIsSequencerPlaying(prev => !prev);
+              }}
               onMapKey={handleMapSequencerKey}
               onClearMap={handleClearMap}
               sequenceKeysInfo={{ mapped: mappedSequences.current, active: activeSequenceKey }}
@@ -758,6 +790,7 @@ const Index = () => {
           isLoopPlaying={isLoopPlaying}
           currentlyPlayingSlice={currentlyPlayingSlice}
           currentlyPlayingDrum={currentlyPlayingDrum}
+          isPremium={isPremium}
           onSlicePlay={playSlice}
           onDrumPlay={playDrumPad}
           onSequenceToggle={(key) => {
@@ -793,6 +826,13 @@ const Index = () => {
             }
           }}
           onLoopToggle={() => {
+            // Check premium status for loop recording
+            if (user && !isPremiumLoading && !isPremium) {
+              setUpgradeFeatureName("Loop Recording");
+              setUpgradePromptOpen(true);
+              return;
+            }
+            
             // Handle L key - loop recording/playback toggle
             if (!isLoopRecording && !isLoopPlaying) {
               setIsLoopRecording(true);
@@ -850,6 +890,12 @@ const Index = () => {
         <AuthModal
           isOpen={authModalOpen}
           onClose={() => setAuthModalOpen(false)}
+        />
+        
+        <UpgradePrompt
+          isOpen={upgradePromptOpen}
+          onClose={() => setUpgradePromptOpen(false)}
+          featureName={upgradeFeatureName}
         />
       </main>
     </div>
