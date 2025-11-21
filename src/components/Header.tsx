@@ -85,6 +85,9 @@ const Header = () => {
                       <li>✓ Limited downloads</li>
                       <li>✓ Standard quality exports</li>
                     </ul>
+                    <Button variant="outline" className="w-full mt-4" disabled>
+                      Current Plan
+                    </Button>
                   </div>
                   <div className="border-2 border-primary rounded-lg p-6 space-y-4">
                     <h3 className="text-xl font-bold">Premium Monthly</h3>
@@ -96,6 +99,12 @@ const Header = () => {
                       <li>✓ Priority support</li>
                       <li>✓ Advanced features</li>
                     </ul>
+                    <Button 
+                      className="w-full mt-4"
+                      onClick={() => window.open('YOUR_STRIPE_MONTHLY_LINK_HERE', '_blank')}
+                    >
+                      Subscribe
+                    </Button>
                   </div>
                   <div className="border rounded-lg p-6 space-y-4">
                     <h3 className="text-xl font-bold">Premium Yearly</h3>
@@ -108,6 +117,12 @@ const Header = () => {
                       <li>✓ Advanced features</li>
                       <li>✓ Save 17%</li>
                     </ul>
+                    <Button 
+                      className="w-full mt-4"
+                      onClick={() => window.open('YOUR_STRIPE_YEARLY_LINK_HERE', '_blank')}
+                    >
+                      Subscribe
+                    </Button>
                   </div>
                 </div>
               </DialogContent>

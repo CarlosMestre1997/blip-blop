@@ -78,24 +78,6 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }: AuthModalProps) => {
     }
   };
 
-  const handleGoogleAuth = async () => {
-    setLoading(true);
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${window.location.origin}/`,
-          scopes: "openid email profile",
-          queryParams: { prompt: "select_account" },
-        },
-      });
-      if (error) throw error;
-    } catch (error: any) {
-      const msg = typeof error?.message === "string" ? error.message : "Google sign-in failed";
-      toast.error(msg.includes("access_denied") ? "Google blocked the sign-in. Check provider configuration and test user access." : msg);
-      setLoading(false);
-    }
-  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -110,26 +92,6 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }: AuthModalProps) => {
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={handleGoogleAuth}
-            disabled={loading}
-          >
-            Continue with Google
-          </Button>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Or continue with email
-              </span>
-            </div>
-          </div>
-
           <form onSubmit={handleEmailAuth} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
