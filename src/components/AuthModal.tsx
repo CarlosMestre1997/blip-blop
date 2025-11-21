@@ -11,6 +11,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { z } from "zod";
+
+const authSchema = z.object({
+  email: z.string()
+    .trim()
+    .email("Invalid email format")
+    .max(255, "Email must be less than 255 characters"),
+  password: z.string()
+    .min(8, "Password must be at least 8 characters")
+    .max(100, "Password must be less than 100 characters"),
+});
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -29,10 +40,20 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }: AuthModalProps) => {
     setLoading(true);
 
     try {
+      // Validate inputs
+      const validation = authSchema.safeParse({ email, password });
+      if (!validation.success) {
+        const firstError = validation.error.errors[0];
+        toast.error(firstError.message);
+        setLoading(false);
+        return;
+      }
+
+      const { email: validEmail, password: validPassword } = validation.data;
       if (isSignUp) {
         const { error } = await supabase.auth.signUp({
-          email,
-          password,
+          email: validEmail,
+          password: validPassword,
           options: {
             emailRedirectTo: `${window.location.origin}/`,
           },
@@ -42,8 +63,8 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }: AuthModalProps) => {
         setIsSignUp(false);
       } else {
         const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
+          email: validEmail,
+          password: validPassword,
         });
         if (error) throw error;
         toast.success("Logged in successfully!");
@@ -131,7 +152,7 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }: AuthModalProps) => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                minLength={6}
+                minLength={8}
               />
             </div>
 

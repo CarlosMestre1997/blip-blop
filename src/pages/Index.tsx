@@ -604,7 +604,9 @@ const Index = () => {
       );
 
       if (validationError) {
-        console.error("Validation error:", validationError);
+        if (import.meta.env.DEV) {
+          console.error("Validation error:", validationError);
+        }
         toast.error("Failed to validate download permission");
         return;
       }
